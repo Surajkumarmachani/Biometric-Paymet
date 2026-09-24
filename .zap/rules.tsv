@@ -1,0 +1,21 @@
+# ZAP baseline rule tuning.  <ruleId>\t<action WARN|IGNORE|FAIL>\t<comment>
+# Start permissive; promote a rule to FAIL once the app is clean for it. Every
+# IGNORE must carry a reason — an unexplained IGNORE is how a real finding hides.
+#
+# Triaged 2026-08-24 against a PRODUCTION build (npm run build && npm start).
+# Do not triage against `npm run dev`: dev adds 'unsafe-eval' to script-src and
+# serves react-refresh.js, so a dev scan invents findings prod does not have.
+10015	WARN	Incident/cache headers on dynamic routes — review, don't block
+10017	WARN	Cross-domain JS: checkout.razorpay.com + clerk-js, by design. The CSP host allowlist is the control, not SRI. Re-check if a NEW origin appears here.
+10020	WARN	Anti-clickjacking — CSP frame-ancestors 'none' is set; verify on all routes
+10021	WARN	X-Content-Type-Options — already set in next.config.mjs; verify coverage
+10037	FAIL	X-Powered-By fixed via poweredByHeader:false. Promoted to FAIL so it cannot regress silently.
+10049	IGNORE	Non-storable content is DELIBERATE: Cache-Control no-store on authenticated and payment pages. A cacheable order page is the actual bug.
+10055	WARN	style-src 'unsafe-inline' is accepted (no Tailwind, inline styles are the design system). NEVER ignore this rule — it also fires on script-src unsafe-eval, which must never appear in prod.
+10063	FAIL	Permissions-Policy set in next.config.mjs. Coverage verified on HTML, _next static assets AND 404 responses, so FAIL is safe and stops a regression.
+10094	IGNORE	Base64 disclosure — matches inside minified Next chunks (asset hashes, inlined data URIs), not secrets. Re-check if it ever fires on an HTML response carrying user data.
+10096	IGNORE	Timestamp disclosure — Next asset hashes, not sensitive
+10109	IGNORE	Modern web message manifest — not applicable
+90003	WARN	SRI missing on checkout.razorpay.com — DO NOT "fix". Razorpay ships new checkout.js without notice; a pinned hash would break every payment on their next deploy.
+90004	WARN	COEP/CORP not set. require-corp would break the cross-origin Razorpay Checkout iframe. Revisit only with a live test on every rail.
+90005	IGNORE	Sec-Fetch-Dest missing — ZAP is reporting that ITS OWN requests lack the header. Not an app defect; browsers always send it.

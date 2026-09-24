@@ -1,0 +1,65 @@
+name: ZAP DAST (baseline)
+
+# Dynamic security scan against a running instance. Runs weekly and on demand.
+# It complements the correctness gates (npm test), which cover logic, not the
+# HTTP surface (headers, cookies, TLS hints, information leakage).
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 3 * * 1' # Mondays 03:00 UTC
+
+jobs:
+  zap-baseline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npm run build
+        env:
+          # Build-time only needs to not crash import analysis; real secrets are
+          # runtime. Provide minimal placeholders so `next build` succeeds.
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          CLERK_SECRET_KEY: sk_test_placeholder
+          NEXT_PUBLIC_RAZORPAY_KEY_ID: rzp_test_placeholder
+          RAZORPAY_KEY_ID: rzp_test_placeholder
+          RAZORPAY_KEY_SECRET: placeholder
+          RAZORPAY_WEBHOOK_SECRET: placeholder
+          INTERNAL_TASK_SECRET: placeholder-placeholder
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+
+      - name: Start app
+        run: |
+          npm start &
+          npx --yes wait-on http://localhost:3000 -t 60000
+        env:
+          DATABASE_URL: postgresql://postgres@127.0.0.1:5432/postgres
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_placeholder
+          CLERK_SECRET_KEY: sk_test_placeholder
+          NEXT_PUBLIC_RAZORPAY_KEY_ID: rzp_test_placeholder
+          RAZORPAY_KEY_ID: rzp_test_placeholder
+          RAZORPAY_KEY_SECRET: placeholder
+          RAZORPAY_WEBHOOK_SECRET: placeholder
+          INTERNAL_TASK_SECRET: placeholder-placeholder
+          NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder
+
+      - name: ZAP baseline scan
+        uses: zaproxy/action-baseline@v0.12.0
+        with:
+          target: http://localhost:3000
+          rules_file_name: .zap/rules.tsv
+          # Do not fail the build on warnings; -a scans hidden/ajax too. Findings
+          # land in the uploaded report + a GitHub issue for triage.
+          cmd_options: '-a'
+          allow_issue_writing: true

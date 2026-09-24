@@ -1,0 +1,83 @@
+import 'server-only'
+import { sql } from './db'
+import { fail } from './errors'
+
+/**
+ * Fixed-window rate limiting in Postgres.
+ *
+ * Postgres rather than an in-process Map because Vercel functions are ephemeral
+ * isolates with no shared memory — an in-process counter is not a weak limiter,
+ * it is no limiter at all.
+ *
+ * The single most important bucket here is OTP send. An attacker looping the
+ * Clerk OTP fallback costs you real money per SMS, and that is direct cash
+ * loss rather than a nuisance. It gets three overlapping limits: per
+ * identifier, per IP, and a global ceiling that trips an alert.
+ */
+
+export interface Limit {
+  limit: number
+  windowSeconds: number
+}
+
+export const LIMITS = {
+  /** Challenge creation — cheap for us, but floods the challenge table. */
+  payOptionsPerUser: { limit: 20, windowSeconds: 3600 },
+  payOptionsPerOrder: { limit: 5, windowSeconds: 60 },
+  /** Order creation. */
+  orderCreatePerUser: { limit: 20, windowSeconds: 3600 },
+  staffOrderCreate: { limit: 120, windowSeconds: 3600 },
+  /** QR claim-token enumeration. */
+  claimPerIp: { limit: 60, windowSeconds: 60 },
+  claimPerUser: { limit: 20, windowSeconds: 3600 },
+  /** Confirm/poll are chatty by design; keep them loose but bounded. */
+  confirmPerUser: { limit: 60, windowSeconds: 60 },
+  statusPerUser: { limit: 120, windowSeconds: 60 },
+  /** Refunds move money outward. Tight, and alert on approach. */
+  refundPerStaff: { limit: 10, windowSeconds: 3600 },
+  /**
+   * Asking for a refund moves no money, so this is not a fraud limit — it stops
+   * one annoyed customer from filling the staff queue. One open request per
+   * order is already a schema invariant (0013), so the only way to reach this
+   * is repeated request/withdraw cycles or many orders.
+   */
+  refundRequestPerUser: { limit: 10, windowSeconds: 3600 },
+  /** OTP fallback — SMS pumping / toll fraud. */
+  otpPerIdentifier: { limit: 5, windowSeconds: 3600 },
+  otpPerIp: { limit: 10, windowSeconds: 3600 },
+  otpGlobal: { limit: 500, windowSeconds: 3600 },
+} as const satisfies Record<string, Limit>
+
+export type LimitName = keyof typeof LIMITS
+
+export async function checkLimit(
+  name: LimitName,
+  subject: string,
+): Promise<{ allowed: boolean }> {
+  const { limit, windowSeconds } = LIMITS[name]
+  const bucket = `${name}:${subject}`
+
+  const rows = (await sql`
+    select app.rate_limit_hit(
+      ${bucket}, ${limit}, make_interval(secs => ${windowSeconds})
+    ) as allowed
+  `) as unknown as Array<{ allowed: boolean }>
+
+  return { allowed: rows[0]?.allowed === true }
+}
+
+/** Throws 429 when over the limit. */
+export async function enforce(name: LimitName, subject: string): Promise<void> {
+  const { allowed } = await checkLimit(name, subject)
+  if (!allowed) fail('rate_limited', `${name} exceeded for ${subject}`)
+}
+
+/**
+ * Best-effort client IP. Behind Vercel, x-forwarded-for is set by the platform;
+ * treat it as untrusted for anything but rate-limit bucketing.
+ */
+export function clientIp(headers: Headers): string {
+  const xff = headers.get('x-forwarded-for')
+  if (xff) return xff.split(',')[0]!.trim()
+  return headers.get('x-real-ip') ?? '0.0.0.0'
+}

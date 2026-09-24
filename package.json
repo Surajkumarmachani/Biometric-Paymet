@@ -1,0 +1,46 @@
+{
+  "name": "regal-checkout",
+  "version": "0.1.0",
+  "private": true,
+  "description": "REGAL LAB biometric checkout \u2014 Sprint 1: rails, money, webhook pipeline",
+  "scripts": {
+    "dev": "next dev",
+    "dev:phone": "tsx scripts/dev-phone.mts",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "worker": "tsx scripts/worker.mts",
+    "orders": "tsx scripts/orders.mts",
+    "staff": "tsx scripts/make-staff.mts",
+    "zap": "bash scripts/zap.sh",
+    "db:reset": "tsx scripts/db-reset.mts",
+    "db:pg:start": "bash scripts/pg-local.sh start",
+    "db:pg:stop": "bash scripts/pg-local.sh stop",
+    "db:local:reset": "DATABASE_URL=postgresql://postgres@127.0.0.1:5433/regal tsx scripts/db-reset.mts --with-shim",
+    "build:check": "NEXT_DIST_DIR=.next-build next build"
+  },
+  "dependencies": {
+    "@clerk/nextjs": "^6.33.3",
+    "@supabase/supabase-js": "^2.58.0",
+    "next": "^15.5.4",
+    "postgres": "^3.4.7",
+    "qrcode": "^1.5.4",
+    "razorpay": "^2.9.8",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "@types/qrcode": "^1.5.6",
+    "@types/react": "^19.1.9",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

@@ -1,0 +1,19 @@
+node_modules/
+.next/
+.env
+.env.local
+*.tsbuildinfo
+next-env.d.ts
+
+# clerk configuration (can include secrets)
+/.clerk/
+.next-build
+.next-dev-*
+
+# local env backups (contain secrets)
+.env*.bak*
+.env*.local*
+!.env.example
+
+# security scan reports
+zap-report*.html

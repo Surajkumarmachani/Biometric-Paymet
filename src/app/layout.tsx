@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import {
@@ -12,9 +13,16 @@ import {
 import { staffRole } from '@/lib/auth'
 import './globals.css'
 
-export const metadata = {
-  title: 'REGAL LAB — Touchless checkout',
-  description: 'Pay in one touch. No forms, no card numbers, no CVV.',
+/**
+ * A function, not a constant, so WEB_API_KEY is read at request time — the
+ * browser's apiFetch() picks it up from this meta tag (see lib/api-client.ts).
+ */
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: 'REGAL LAB — Touchless checkout',
+    description: 'Pay in one touch. No forms, no card numbers, no CVV.',
+    other: { 'regal-api-key': process.env.WEB_API_KEY ?? '' },
+  }
 }
 
 export default async function RootLayout({ children }: { children: ReactNode }) {

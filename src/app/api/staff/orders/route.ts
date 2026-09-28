@@ -7,6 +7,7 @@ import { createStoreOrder } from '@/lib/orders'
 import { decideRails } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,6 +34,7 @@ const Body = z.object({
 export async function POST(request: Request) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const staff = await requireStaff('associate')
     await enforce('staffOrderCreate', staff.userId)
 

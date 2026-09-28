@@ -5,6 +5,7 @@ import { enforce, clientIp } from '@/lib/rate-limit'
 import { verifyOtp } from '@/lib/otp'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +28,7 @@ const Body = z.object({
 export async function POST(request: Request) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const session = await requireUser()
     const ip = clientIp(request.headers)
     await enforce('otpPerIp', ip)

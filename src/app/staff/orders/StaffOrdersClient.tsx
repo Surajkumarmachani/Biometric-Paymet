@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useReverification } from '@clerk/nextjs'
 import { isReverificationHint } from '@/lib/reverification'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Staff order list with the refund action.
@@ -214,7 +215,7 @@ function RefundForm({ order, onDone }: { order: StaffOrder; onDone: () => void }
   // Wrapped so a missing step-up pops the passkey prompt and retries.
   const submitRefund = useReverification(
     async (body: { amountPaise?: number; reason: string }) => {
-      const res = await fetch(`/api/orders/${order.id}/refund`, {
+      const res = await apiFetch(`/api/orders/${order.id}/refund`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
@@ -237,7 +238,7 @@ function RefundForm({ order, onDone }: { order: StaffOrder; onDone: () => void }
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/staff/refund-requests/${ask.id}/decline`, {
+      const res = await apiFetch(`/api/staff/refund-requests/${ask.id}/decline`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ note: note.trim() || undefined }),

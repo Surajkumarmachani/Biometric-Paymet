@@ -6,6 +6,7 @@ import { sql } from '@/lib/db'
 import { reconcileOrder } from '@/lib/orders'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR, toPaise } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -27,6 +28,7 @@ export async function GET(
 ) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const session = await requireUser()
     await enforce('statusPerUser', session.userId)
 

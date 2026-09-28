@@ -2,7 +2,7 @@
   "name": "regal-checkout",
   "version": "0.1.0",
   "private": true,
-  "description": "REGAL LAB biometric checkout \u2014 Sprint 1: rails, money, webhook pipeline",
+  "description": "REGAL LAB biometric checkout — Sprint 1: rails, money, webhook pipeline",
   "scripts": {
     "dev": "next dev",
     "dev:phone": "tsx scripts/dev-phone.mts",
@@ -14,6 +14,7 @@
     "worker": "tsx scripts/worker.mts",
     "orders": "tsx scripts/orders.mts",
     "staff": "tsx scripts/make-staff.mts",
+    "keys": "tsx scripts/api-keys.mts",
     "zap": "bash scripts/zap.sh",
     "db:reset": "tsx scripts/db-reset.mts",
     "db:pg:start": "bash scripts/pg-local.sh start",

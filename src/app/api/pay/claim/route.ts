@@ -6,6 +6,7 @@ import { enforce, clientIp } from '@/lib/rate-limit'
 import { claimOrder } from '@/lib/orders'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -29,6 +30,7 @@ const Body = z.object({ token: z.string().min(20).max(200) })
 export async function POST(request: Request) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const ip = clientIp(request.headers)
     await enforce('claimPerIp', ip)
 

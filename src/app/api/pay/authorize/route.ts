@@ -12,6 +12,7 @@ import {
 import { decideRails, expectedGestures } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -40,6 +41,7 @@ const Body = z.object({ orderId: z.string().uuid() })
 export async function POST(request: Request) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     // Step-up first: no reason to touch the database for an unverified caller.
     const a = await auth()
     if (!a.userId) fail('unauthenticated')

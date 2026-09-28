@@ -31,7 +31,40 @@ function contentSecurityPolicy(nonce: string): string {
   ].join("; ");
 }
 
+/**
+ * CORS for /api, so the API can be called from other origins (a desktop app's
+ * webview, a customer's site). ALLOWED_ORIGINS is a comma list; unset or "*"
+ * allows any origin.
+ *
+ * Never sends Allow-Credentials, so a foreign page can never ride a signed-in
+ * user's Clerk cookie: cross-origin callers authenticate with X-API-Key (and a
+ * Bearer session token when a person is involved), not with cookies.
+ */
+function corsHeaders(origin: string | null): Record<string, string> | null {
+  if (!origin) return null
+  const raw = (process.env.ALLOWED_ORIGINS ?? "*").trim()
+  const list = raw.split(",").map((s) => s.trim()).filter(Boolean)
+  const any = raw === "" || list.includes("*")
+  if (!any && !list.includes(origin)) return null
+  return {
+    "Access-Control-Allow-Origin": any ? "*" : origin,
+    "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key, X-Admin-Token",
+    "Access-Control-Expose-Headers": "Retry-After",
+    "Access-Control-Max-Age": "600",
+    Vary: "Origin",
+  }
+}
+
 export default clerkMiddleware(async (_auth, request) => {
+  const isApi = request.nextUrl.pathname.startsWith("/api/")
+  const cors = isApi ? corsHeaders(request.headers.get("origin")) : null
+
+  // Preflight: answer here; it carries no credentials and must not reach a route.
+  if (isApi && request.method === "OPTIONS") {
+    return new NextResponse(null, { status: 204, headers: cors ?? {} })
+  }
+
   const nonce = crypto.randomUUID().replace(/-/g, "");
   const csp = contentSecurityPolicy(nonce);
 
@@ -43,6 +76,7 @@ export default clerkMiddleware(async (_auth, request) => {
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("content-security-policy", csp);
+  if (cors) for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
   return response;
 });
 

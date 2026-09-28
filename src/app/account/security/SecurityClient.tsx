@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { useUser, useReverification } from '@clerk/nextjs'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Client half of the security centre. Four panels:
@@ -288,7 +289,7 @@ function OtpPanel({ primaryEmail }: { primaryEmail: string }) {
   async function send() {
     setBusy(true); setMsg('')
     try {
-      const res = await fetch('/api/auth/otp/send', {
+      const res = await apiFetch('/api/auth/otp/send', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ identifier, purpose: 'verify' }),
@@ -316,7 +317,7 @@ function OtpPanel({ primaryEmail }: { primaryEmail: string }) {
   async function verify() {
     setBusy(true); setMsg('')
     try {
-      const res = await fetch('/api/auth/otp/verify', {
+      const res = await apiFetch('/api/auth/otp/verify', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ identifier, code, purpose: 'verify' }),

@@ -6,6 +6,7 @@ import { sql, rpc } from '@/lib/db'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { toPaise, formatINR } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -48,6 +49,7 @@ export async function POST(
 ) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const session = await requireUser()
     await enforce('refundRequestPerUser', session.userId)
 
@@ -121,6 +123,7 @@ export async function DELETE(
 ) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const session = await requireUser()
     await enforce('refundRequestPerUser', session.userId)
 

@@ -46,6 +46,8 @@ export const LIMITS = {
   otpPerIdentifier: { limit: 5, windowSeconds: 3600 },
   otpPerIp: { limit: 10, windowSeconds: 3600 },
   otpGlobal: { limit: 500, windowSeconds: 3600 },
+  /** Admin key management. Counted before the token compare, so it bounds guessing. */
+  adminPerIp: { limit: 30, windowSeconds: 60 },
 } as const satisfies Record<string, Limit>
 
 export type LimitName = keyof typeof LIMITS

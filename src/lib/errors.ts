@@ -9,6 +9,7 @@ import { NextResponse } from 'next/server'
 
 export type ApiErrorCode =
   | 'unauthenticated'
+  | 'invalid_api_key'
   | 'forbidden'
   | 'not_found'
   | 'invalid_request'
@@ -23,6 +24,7 @@ export type ApiErrorCode =
 
 const STATUS: Record<ApiErrorCode, number> = {
   unauthenticated: 401,
+  invalid_api_key: 401,
   forbidden: 403,
   not_found: 404,
   invalid_request: 400,
@@ -38,6 +40,7 @@ const STATUS: Record<ApiErrorCode, number> = {
 
 const SAFE_MESSAGE: Record<ApiErrorCode, string> = {
   unauthenticated: 'Please sign in to continue.',
+  invalid_api_key: 'Missing or invalid API key. Send it in the X-API-Key header.',
   forbidden: 'You do not have access to this.',
   not_found: 'Not found.',
   invalid_request: 'That request was not valid.',
@@ -58,6 +61,8 @@ export class ApiError extends Error {
     readonly code: ApiErrorCode,
     /** Internal detail. Logged, never returned to the client. */
     readonly detail?: string,
+    /** Seconds until a rate-limited caller may retry; sent as Retry-After. */
+    readonly retryAfter?: number,
   ) {
     super(detail ?? code)
     this.name = 'ApiError'
@@ -83,9 +88,13 @@ export function errorResponse(err: unknown, requestId?: string): NextResponse {
     }),
   )
 
+  const retryAfter = err instanceof ApiError ? err.retryAfter : undefined
   return NextResponse.json(
     { error: { code, message: SAFE_MESSAGE[code] }, requestId },
-    { status: STATUS[code] },
+    {
+      status: STATUS[code],
+      headers: retryAfter ? { 'Retry-After': String(retryAfter) } : undefined,
+    },
   )
 }
 

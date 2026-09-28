@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import SuccessTick from '@/components/SuccessTick'
 import { useAuth } from '@clerk/nextjs'
 import { supabaseBrowser, supabaseConfigured } from '@/lib/supabase/browser'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Live view of one order, over Supabase Realtime.
@@ -89,7 +90,7 @@ export default function OrderTile({
     let cancelled = false
     const poll = async () => {
       try {
-        const res = await fetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
+        const res = await apiFetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
         if (!res.ok || cancelled) return
         const data = (await res.json()) as { status?: string; receiptNo?: string | null }
         if (cancelled) return

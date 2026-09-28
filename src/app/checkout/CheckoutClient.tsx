@@ -6,6 +6,7 @@ import Script from 'next/script'
 import { SignedIn, SignedOut, SignInButton, useReverification } from '@clerk/nextjs'
 import { isReverificationHint } from '@/lib/reverification'
 import OrderTile from '../staff/terminal/OrderTile'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Customer self-checkout flow.
@@ -98,7 +99,7 @@ export default function CheckoutClient({
 
   const authorize = useReverification(
     async (orderId: string): Promise<AuthorizeResponse> => {
-      const res = await fetch('/api/pay/authorize', {
+      const res = await apiFetch('/api/pay/authorize', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ orderId }),
@@ -114,7 +115,7 @@ export default function CheckoutClient({
 
   const poll = useCallback(async (orderId: string, attempt = 0) => {
     try {
-      const res = await fetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
+      const res = await apiFetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
       const data = await res.json()
       if (data.paid) {
         setPhase('paid')
@@ -146,7 +147,7 @@ export default function CheckoutClient({
     setMessage('')
     try {
       setPhase('creating')
-      const res = await fetch('/api/orders', {
+      const res = await apiFetch('/api/orders', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ lines, idempotencyKey: crypto.randomUUID() }),
@@ -192,7 +193,7 @@ export default function CheckoutClient({
       }) => {
         setPhase('confirming')
         try {
-          const res = await fetch('/api/pay/confirm', {
+          const res = await apiFetch('/api/pay/confirm', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(response),

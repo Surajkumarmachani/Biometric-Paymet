@@ -7,6 +7,7 @@ import { createWebOrder } from '@/lib/orders'
 import { decideRails, expectedGestures } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR } from '@/lib/money'
+import { requireApiKey } from '@/lib/api-keys'
 
 // Node runtime: postgres.js and node:crypto. force-dynamic because a cached
 // order-creation route is a production incident.
@@ -39,6 +40,7 @@ const Body = z.object({
 export async function POST(request: Request) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const session = await requireUser()
     await enforce('orderCreatePerUser', session.userId)
 

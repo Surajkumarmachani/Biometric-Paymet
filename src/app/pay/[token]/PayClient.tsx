@@ -7,6 +7,7 @@ import { useRouter } from 'next/navigation'
 import { SignedIn, SignedOut, SignInButton, useReverification } from '@clerk/nextjs'
 import { isReverificationHint } from '@/lib/reverification'
 import SuccessTick from '@/components/SuccessTick'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * The customer-side payment flow.
@@ -70,7 +71,7 @@ export default function PayClient({
   // Clerk drives the passkey/biometric prompt. useReverification wraps the call
   // so that a step-up requirement triggers the step-up UI and retries.
   const authorize = useReverification(async (): Promise<AuthorizeResponse> => {
-    const res = await fetch('/api/pay/authorize', {
+    const res = await apiFetch('/api/pay/authorize', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ orderId }),
@@ -85,7 +86,7 @@ export default function PayClient({
   const poll = useCallback(
     async (attempt = 0) => {
       try {
-        const res = await fetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
+        const res = await apiFetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
         const data = await res.json()
 
         if (data.paid) {
@@ -153,7 +154,7 @@ export default function PayClient({
     setMessage('')
     try {
       setPhase('claiming')
-      const claim = await fetch('/api/pay/claim', {
+      const claim = await apiFetch('/api/pay/claim', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ token }),
@@ -207,7 +208,7 @@ export default function PayClient({
       }) => {
         setPhase('confirming')
         try {
-          const res = await fetch('/api/pay/confirm', {
+          const res = await apiFetch('/api/pay/confirm', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: JSON.stringify(response),

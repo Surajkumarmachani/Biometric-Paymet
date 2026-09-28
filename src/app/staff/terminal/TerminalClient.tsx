@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import OrderTile from './OrderTile'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Associate-facing terminal. Build a cart -> POST /api/staff/orders -> render the
@@ -151,7 +152,7 @@ export default function TerminalClient({ catalog }: { catalog: CatalogItem[] }) 
     if (lines.length === 0) return
     setPhase('creating'); setError('')
     try {
-      const res = await fetch('/api/staff/orders', {
+      const res = await apiFetch('/api/staff/orders', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ lines, idempotencyKey: crypto.randomUUID() }),
@@ -356,7 +357,7 @@ function Countdown({ expiresAt }: { expiresAt: number }) {
  */
 async function hasSettled(orderId: string): Promise<boolean> {
   try {
-    const res = await fetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
+    const res = await apiFetch(`/api/orders/${orderId}/status`, { cache: 'no-store' })
     if (!res.ok) return false
     const data = (await res.json()) as { settled?: boolean }
     return data.settled === true

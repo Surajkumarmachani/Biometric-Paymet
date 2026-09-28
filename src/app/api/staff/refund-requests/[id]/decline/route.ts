@@ -4,6 +4,7 @@ import { requireStaff } from '@/lib/auth'
 import { sql, rpc } from '@/lib/db'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,7 @@ export async function POST(
 ) {
   const requestId = newRequestId()
   try {
+    await requireApiKey(request)
     const staff = await requireStaff('manager')
 
     const { id } = await context.params

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { RefundRequest } from '@/lib/refund-request'
+import { apiFetch } from '@/lib/api-client'
 
 /**
  * Where the customer asks for a refund.
@@ -50,7 +51,7 @@ export default function RefundRequestPanel({
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/orders/${orderId}/refund-request`, {
+      const res = await apiFetch(`/api/orders/${orderId}/refund-request`, {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
@@ -80,7 +81,7 @@ export default function RefundRequestPanel({
     setBusy(true)
     setError('')
     try {
-      const res = await fetch(`/api/orders/${orderId}/refund-request`, { method: 'DELETE' })
+      const res = await apiFetch(`/api/orders/${orderId}/refund-request`, { method: 'DELETE' })
       const data = await res.json().catch(() => null)
       if (!res.ok) {
         setError(data?.error?.message ?? 'Could not withdraw that request.')

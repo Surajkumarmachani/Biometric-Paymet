@@ -1,5 +1,6 @@
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
+import { authorizedParties, clerkFrontendHost, corsAllowList } from "./lib/edge-config";
 
 const isDev = process.env.NODE_ENV === "development";
 
@@ -12,17 +13,22 @@ const isDev = process.env.NODE_ENV === "development";
  * 'unsafe-eval' is added only in development, where Next's HMR / React Refresh
  * runtime evaluates strings. Production never gets it, so the mitigation holds.
  */
+// This instance's Clerk host only (see clerkFrontendHost). If the key cannot
+// be read, fall back to the dev wildcard rather than break sign-in.
+const CLERK = clerkFrontendHost()
+const clerkSrc = CLERK ? `https://${CLERK}` : "https://*.clerk.accounts.dev"
+
 function contentSecurityPolicy(nonce: string): string {
   return [
     "default-src 'self'",
     // Host allowlist stays effective (no 'strict-dynamic'), so Razorpay Checkout
     // and clerk-js keep loading; the nonce covers Next/Clerk inline scripts.
     // challenges.cloudflare.com is Clerk's bot-protection CAPTCHA (Turnstile).
-    `script-src 'self' 'nonce-${nonce}' https://checkout.razorpay.com https://*.clerk.accounts.dev https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
-    "frame-src https://api.razorpay.com https://checkout.razorpay.com https://*.clerk.accounts.dev https://challenges.cloudflare.com",
+    `script-src 'self' 'nonce-${nonce}' https://checkout.razorpay.com ${clerkSrc} https://challenges.cloudflare.com${isDev ? " 'unsafe-eval'" : ""}`,
+    `frame-src https://api.razorpay.com https://checkout.razorpay.com ${clerkSrc} https://challenges.cloudflare.com`,
     "worker-src 'self' blob:",
-    "connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://*.supabase.co wss://*.supabase.co https://*.clerk.accounts.dev https://challenges.cloudflare.com",
-    "img-src 'self' data: https://cdn.razorpay.com https://img.clerk.com https://*.clerk.accounts.dev",
+    `connect-src 'self' https://api.razorpay.com https://lumberjack.razorpay.com https://*.supabase.co wss://*.supabase.co ${clerkSrc} https://challenges.cloudflare.com`,
+    `img-src 'self' data: https://cdn.razorpay.com https://img.clerk.com ${clerkSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "object-src 'none'",
     "base-uri 'self'",
@@ -33,8 +39,8 @@ function contentSecurityPolicy(nonce: string): string {
 
 /**
  * CORS for /api, so the API can be called from other origins (a desktop app's
- * webview, a customer's site). ALLOWED_ORIGINS is a comma list; unset or "*"
- * allows any origin.
+ * webview, a customer's site). ALLOWED_ORIGINS is a comma list; "*" allows
+ * any origin; unset allows none (same-origin calls never need CORS).
  *
  * Never sends Allow-Credentials, so a foreign page can never ride a signed-in
  * user's Clerk cookie: cross-origin callers authenticate with X-API-Key (and a
@@ -42,10 +48,8 @@ function contentSecurityPolicy(nonce: string): string {
  */
 function corsHeaders(origin: string | null): Record<string, string> | null {
   if (!origin) return null
-  const raw = (process.env.ALLOWED_ORIGINS ?? "*").trim()
-  const list = raw.split(",").map((s) => s.trim()).filter(Boolean)
-  const any = raw === "" || list.includes("*")
-  if (!any && !list.includes(origin)) return null
+  const { any, origins } = corsAllowList()
+  if (!any && !origins.includes(origin)) return null
   return {
     "Access-Control-Allow-Origin": any ? "*" : origin,
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
@@ -78,7 +82,7 @@ export default clerkMiddleware(async (_auth, request) => {
   response.headers.set("content-security-policy", csp);
   if (cors) for (const [k, v] of Object.entries(cors)) response.headers.set(k, v);
   return response;
-});
+}, { authorizedParties: authorizedParties() });
 
 export const config = {
   matcher: [

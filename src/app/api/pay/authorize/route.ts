@@ -11,6 +11,7 @@ import {
 } from '@/lib/orders'
 import { decideRails, expectedGestures } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 
@@ -71,7 +72,7 @@ export async function POST(request: Request) {
       return NextResponse.json(reverificationError(REVERIFY_CONFIG), { status: 403 })
     }
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
     const { orderId } = parsed.data
 

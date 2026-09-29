@@ -8,6 +8,7 @@ import { refundPayment } from '@/lib/razorpay/api'
 import { issueCreditNote } from '@/lib/credit-note'
 import { audit, alertOn } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { toPaise } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 
@@ -59,7 +60,7 @@ export async function POST(
     const { id } = await context.params
     if (!z.string().uuid().safeParse(id).success) fail('invalid_request', 'bad order id')
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
     // One step-up buys one refund. Clerk keeps a reverification valid for its

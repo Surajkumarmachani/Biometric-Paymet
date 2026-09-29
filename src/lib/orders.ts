@@ -1,4 +1,5 @@
 import 'server-only'
+import type { TransactionSql } from 'postgres'
 import { sql, rpc, jsonb } from './db'
 import { toPaise, type Paise } from './money'
 import { fail } from './errors'
@@ -60,39 +61,61 @@ export async function ensureAppUser(userId: string, email?: string | null): Prom
 }
 
 /**
- * Apply the risk layer to a freshly-priced order. Called by every creation path
- * so a new entry point cannot skip it. An over-cap order is deleted (it is a
- * bare draft with no authorisation or Razorpay order, so nothing to unwind) and
- * refused; a high-value one is allowed but alerted + audited for review.
+ * Price and risk-screen an order in ONE transaction.
+ *
+ * The risk cap used to run after app.create_order had committed: an over-cap
+ * order existed as a real `draft` until a follow-up delete, so a concurrent
+ * request with the same idempotency key could replay it (skipping screening)
+ * and a crash between the two left a payable over-cap order behind. Now an
+ * over-cap order is rolled back before anyone else can see it.
+ *
+ * A replay is not re-screened: nothing over the cap can ever have committed.
+ * The high-value alert fires after commit, for an order that really exists.
  */
-async function screenOrderRisk(args: {
-  orderId: string
-  amountPaise: Paise
-  userId?: string | null
-  staffId?: string | null
-}): Promise<void> {
-  const risk = assessOrderAmount(args.amountPaise)
-  if (!risk.allowed) {
-    await sql`delete from orders where id = ${args.orderId}::uuid and status = 'draft'`
+async function createScreenedOrder(
+  create: (tx: TransactionSql) => ReturnType<typeof sql>,
+  who: { userId?: string | null; staffId?: string | null },
+): Promise<CreatedOrder> {
+  let declined: { amountPaise: Paise; maxOrderPaise: number; code: string } | null = null
+
+  let out: CreatedOrder
+  try {
+    out = await sql.begin(async (tx) => {
+      const created = await rpc<CreatedOrder>(create(tx))
+      if (!created.replayed) {
+        const amountPaise = toPaise(created.amount_paise)
+        const risk = assessOrderAmount(amountPaise)
+        if (!risk.allowed) {
+          declined = { amountPaise, maxOrderPaise: risk.maxOrderPaise, code: risk.code }
+          throw new Error('risk_declined') // rolls the order back
+        }
+      }
+      return created
+    })
+  } catch (err) {
+    if (!declined) throw err
+    const d = declined as { amountPaise: Paise; maxOrderPaise: number; code: string }
     await audit({
       event: 'risk_declined',
       outcome: 'failure',
-      userId: args.userId ?? null,
-      orderId: args.orderId,
-      detail: { amountPaise: args.amountPaise, maxOrderPaise: risk.maxOrderPaise, reason: risk.code, staffId: args.staffId ?? null },
+      userId: who.userId ?? null,
+      orderId: null,
+      detail: { amountPaise: d.amountPaise, maxOrderPaise: d.maxOrderPaise, reason: d.code, staffId: who.staffId ?? null },
     })
-    fail('risk_declined', `order amount ${args.amountPaise} exceeds cap ${risk.maxOrderPaise}`)
+    fail('risk_declined', `order amount ${d.amountPaise} exceeds cap ${d.maxOrderPaise}`)
   }
-  if (risk.flags.includes('high_value')) {
-    alertOn('high_value_order', { orderId: args.orderId, amountPaise: args.amountPaise, userId: args.userId ?? null })
+
+  if (!out.replayed && assessOrderAmount(toPaise(out.amount_paise)).flags.includes('high_value')) {
+    alertOn('high_value_order', { orderId: out.order_id, amountPaise: toPaise(out.amount_paise), userId: who.userId ?? null })
     await audit({
       event: 'high_value_order',
       outcome: 'success',
-      userId: args.userId ?? null,
-      orderId: args.orderId,
-      detail: { amountPaise: args.amountPaise },
+      userId: who.userId ?? null,
+      orderId: out.order_id,
+      detail: { amountPaise: toPaise(out.amount_paise) },
     })
   }
+  return out
 }
 
 /** Web entry: the customer's own cart. Client sends {sku, qty} — never money. */
@@ -104,21 +127,16 @@ export async function createWebOrder(args: {
 }): Promise<{ orderId: string; amountPaise: Paise; currency: string; replayed: boolean }> {
   await ensureAppUser(args.userId, args.email)
 
-  const out = await rpc<CreatedOrder>(sql`
-    select app.create_order(
-      ${args.userId},
-      ${jsonb(args.lines)}::jsonb,
-      ${args.idempotencyKey}
-    )
-  `)
-
-  if (!out.replayed) {
-    await screenOrderRisk({
-      orderId: out.order_id,
-      amountPaise: toPaise(out.amount_paise),
-      userId: args.userId,
-    })
-  }
+  const out = await createScreenedOrder(
+    (tx) => tx`
+      select app.create_order(
+        ${args.userId},
+        ${jsonb(args.lines)}::jsonb,
+        ${args.idempotencyKey}
+      )
+    `,
+    { userId: args.userId },
+  )
 
   await audit({
     event: 'order_created',
@@ -155,25 +173,20 @@ export async function createStoreOrder(args: {
 }> {
   const claimToken = randomToken(32)
 
-  const out = await rpc<CreatedOrder>(sql`
-    select app.create_order(
-      ${null},
-      ${jsonb(args.lines)}::jsonb,
-      ${args.idempotencyKey},
-      ${args.storeId}::uuid,
-      ${args.staffId},
-      ${hashClaimToken(claimToken)},
-      ${args.claimTtlSeconds ?? 900}
-    )
-  `)
-
-  if (!out.replayed) {
-    await screenOrderRisk({
-      orderId: out.order_id,
-      amountPaise: toPaise(out.amount_paise),
-      staffId: args.staffId,
-    })
-  }
+  const out = await createScreenedOrder(
+    (tx) => tx`
+      select app.create_order(
+        ${null},
+        ${jsonb(args.lines)}::jsonb,
+        ${args.idempotencyKey},
+        ${args.storeId}::uuid,
+        ${args.staffId},
+        ${hashClaimToken(claimToken)},
+        ${args.claimTtlSeconds ?? 900}
+      )
+    `,
+    { staffId: args.staffId },
+  )
 
   await audit({
     event: 'order_created',

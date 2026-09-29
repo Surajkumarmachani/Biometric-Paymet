@@ -8,6 +8,7 @@ import { verifyCheckoutSignature } from '@/lib/razorpay/verify'
 import { applyPaymentById } from '@/lib/orders'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
     const session = await requireUser()
     await enforce('confirmPerUser', session.userId)
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
     const body = parsed.data
 

@@ -527,14 +527,21 @@ describe('webhook ledger', () => {
 // Security review #5 + refund step-up/race: app.reserve_refund (0016)
 // ---------------------------------------------------------------------------
 describe('reserve_refund', () => {
+  const ADMIN = 'user_staff_admin_rr'
+  const OTHER_STORE = '22222222-2222-2222-2222-222222222222'
+  beforeAll(async () => {
+    await db.sql`insert into app_users (clerk_id, email) values (${ADMIN}, ${'admin-rr@regallab.example'})`
+    await db.sql`insert into stores (id, name) values (${OTHER_STORE}::uuid, ${'Other store'})`
+    await db.sql`insert into staff (clerk_id, store_id, role) values (${ADMIN}, ${OTHER_STORE}::uuid, 'admin')`
+  })
   async function paidOrder() {
     const o = await readyOrder()
     const paymentId = `pay_rr_${seq}`
     one(await apply({ rzp: o.rzp, paymentId, status: 'captured', amount: o.amount }))
     return { ...o, paymentId }
   }
-  const reserve = (orderId: string, gesture: string) =>
-    db.sql`select app.reserve_refund(${orderId}::uuid, ${gesture}, ${'user_staff_priya'})`.then((r) =>
+  const reserve = (orderId: string, gesture: string, staffId = ADMIN) =>
+    db.sql`select app.reserve_refund(${orderId}::uuid, ${gesture}, ${staffId})`.then((r) =>
       one<{ razorpay_payment_id: string; remaining_paise: string }>(r),
     )
 
@@ -542,6 +549,26 @@ describe('reserve_refund', () => {
     const o = await paidOrder()
     const r = await reserve(o.id, `g_ok_${seq}`)
     expect(r.razorpay_payment_id).toBe(o.paymentId)
+    expect(paise(r.remaining_paise)).toBe(o.amount)
+  })
+
+  it("lets a manager refund their own store's order", async () => {
+    const o = await paidOrder()
+    await db.sql`update orders set store_id = ${'11111111-1111-1111-1111-111111111111'}::uuid where id = ${o.id}::uuid`
+    const r = await reserve(o.id, `g_own_${seq}`, 'user_staff_priya')
+    expect(paise(r.remaining_paise)).toBe(o.amount)
+  })
+
+  it("refuses a manager on another store's order", async () => {
+    const o = await paidOrder()
+    await db.sql`update orders set store_id = ${OTHER_STORE}::uuid where id = ${o.id}::uuid`
+    await expect(reserve(o.id, `g_oth_${seq}`, 'user_staff_priya')).rejects.toMatchObject({ code: '42501' })
+  })
+
+  it('refuses a manager on a web order (admins only)', async () => {
+    const o = await paidOrder() // no store
+    await expect(reserve(o.id, `g_web_${seq}`, 'user_staff_priya')).rejects.toMatchObject({ code: '42501' })
+    const r = await reserve(o.id, `g_web_admin_${seq}`)
     expect(paise(r.remaining_paise)).toBe(o.amount)
   })
 
@@ -578,7 +605,7 @@ describe('reserve_refund', () => {
     const firstIn = new Promise<void>((r) => (firstReserved = r))
 
     const first = db.sql.begin(async (tx) => {
-      await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c1_${seq}`}, ${'user_staff_priya'})`
+      await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c1_${seq}`}, ${ADMIN})`
       firstReserved()
       await firstHolds // "the Razorpay call"
       await tx`select app.apply_refund(${o.paymentId}, ${`rfnd_c1_${seq}`}, ${o.amount}, ${'pending'})`
@@ -587,7 +614,7 @@ describe('reserve_refund', () => {
     await firstIn
     let secondRemaining: number | null = null
     const second = db.sql.begin(async (tx) => {
-      const rows = await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c2_${seq}`}, ${'user_staff_priya'}) as r`
+      const rows = await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c2_${seq}`}, ${ADMIN}) as r`
       secondRemaining = paise((rows[0] as { r: { remaining_paise: string } }).r.remaining_paise)
     })
 
@@ -623,5 +650,42 @@ describe('idempotency key ownership', () => {
     const key = idem('steal')
     await create(ALICE, key)
     await expect(create(BOB, key)).rejects.toMatchObject({ code: '22023' })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// 0018: a re-read after a full refund must not zero the captured amount
+// ---------------------------------------------------------------------------
+describe('captured amount after a full refund', () => {
+  it('stays captured when Razorpay later reports the payment as refunded', async () => {
+    const o = await readyOrder()
+    const paymentId = `pay_cn_${seq}`
+    one(await apply({ rzp: o.rzp, paymentId, status: 'captured', amount: o.amount }))
+    await db.sql`select app.apply_refund(${paymentId}, ${`rfnd_cn_${seq}`}, ${o.amount}, ${'processed'})`
+
+    // The customer's confirm / a webhook redelivery re-reads the payment.
+    const r = one<{ status: string; amount_captured_paise: string }>(
+      await apply({ rzp: o.rzp, paymentId, status: 'refunded', amount: o.amount }),
+    )
+    expect(r.status).toBe('refunded')
+    expect(paise(r.amount_captured_paise)).toBe(o.amount)
+
+    const rows = (await db.sql`
+      select status, amount_captured_paise, amount_refunded_paise from orders where id = ${o.id}::uuid
+    `) as unknown as Array<{ status: string; amount_captured_paise: string; amount_refunded_paise: string }>
+    expect(rows[0]!.status).toBe('refunded')
+    expect(paise(rows[0]!.amount_captured_paise)).toBe(o.amount)
+    expect(paise(rows[0]!.amount_refunded_paise)).toBe(o.amount)
+  })
+
+  it('a refunded status arriving BEFORE the refund row still leaves the order refundable to refunded', async () => {
+    const o = await readyOrder()
+    const paymentId = `pay_cn2_${seq}`
+    one(await apply({ rzp: o.rzp, paymentId, status: 'captured', amount: o.amount }))
+    one(await apply({ rzp: o.rzp, paymentId, status: 'refunded', amount: o.amount }))
+    const out = one<{ fully_refunded: boolean }>(
+      await db.sql`select app.apply_refund(${paymentId}, ${`rfnd_cn2_${seq}`}, ${o.amount}, ${'processed'})`,
+    )
+    expect(out.fully_refunded).toBe(true)
   })
 })

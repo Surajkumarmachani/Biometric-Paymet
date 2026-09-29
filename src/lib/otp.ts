@@ -1,6 +1,7 @@
 import 'server-only'
 import crypto from 'node:crypto'
 import { sql, rpc } from './db'
+import { maskIdentifier, scrubPII } from './redact'
 
 /**
  * OTP fallback (S2 Identity).
@@ -101,7 +102,7 @@ async function sendEmail(to: string, code: string): Promise<boolean> {
     }),
   })
   if (!res.ok) {
-    console.error(JSON.stringify({ level: 'error', event: 'otp_email_failed', status: res.status, detail: (await res.text()).slice(0, 200) }))
+    console.error(JSON.stringify({ level: 'error', event: 'otp_email_failed', status: res.status, detail: scrubPII((await res.text()).slice(0, 200)) }))
     return false
   }
   return true
@@ -126,7 +127,7 @@ async function sendSms(to: string, code: string): Promise<boolean> {
     }).toString(),
   })
   if (!res.ok) {
-    console.error(JSON.stringify({ level: 'error', event: 'otp_sms_failed', status: res.status, detail: (await res.text()).slice(0, 200) }))
+    console.error(JSON.stringify({ level: 'error', event: 'otp_sms_failed', status: res.status, detail: scrubPII((await res.text()).slice(0, 200)) }))
     return false
   }
   return true
@@ -146,15 +147,25 @@ async function sendCode(identifier: string, code: string, purpose: OtpPurpose): 
     if (channel === 'email' && (await sendEmail(identifier, code))) return true
     if (channel === 'sms' && (await sendSms(identifier, code))) return true
   } catch (err) {
-    console.error(JSON.stringify({ level: 'error', event: 'otp_delivery_error', channel, detail: err instanceof Error ? err.message : String(err) }))
+    console.error(JSON.stringify({ level: 'error', event: 'otp_delivery_error', channel, detail: scrubPII(err instanceof Error ? err.message : String(err)) }))
   }
 
-  if (process.env.NODE_ENV === 'production') {
-    console.error(JSON.stringify({ level: 'error', event: 'otp_delivery_unconfigured', channel, identifier, purpose }))
-  } else {
+  if (mayLogCodes()) {
     console.log(JSON.stringify({ level: 'info', event: 'otp_dev_delivery', note: `channel=${channel}, no provider configured or send failed — code logged for local testing only`, identifier, purpose, code }))
+  } else {
+    console.error(JSON.stringify({ level: 'error', event: 'otp_delivery_unconfigured', channel, identifier: maskIdentifier(identifier), purpose }))
   }
   return false
+}
+
+/**
+ * Whether an undelivered code may be printed to the log. Only on a developer's
+ * machine: NODE_ENV exactly 'development' (next dev) or 'test'. It used to be
+ * "anything but production", so a container started with NODE_ENV=staging —
+ * or with it unset — wrote live codes into Cloud Logging.
+ */
+export function mayLogCodes(nodeEnv: string | undefined = process.env.NODE_ENV): boolean {
+  return nodeEnv === 'development' || nodeEnv === 'test'
 }
 
 export interface OtpSendResult {

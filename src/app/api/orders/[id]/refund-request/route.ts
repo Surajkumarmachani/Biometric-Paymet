@@ -5,6 +5,7 @@ import { enforce } from '@/lib/rate-limit'
 import { sql, rpc } from '@/lib/db'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { toPaise, formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 
@@ -56,7 +57,7 @@ export async function POST(
     const { id } = await context.params
     if (!z.string().uuid().safeParse(id).success) fail('invalid_request', 'bad order id')
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
     const out = await rpc<RequestResult>(sql`

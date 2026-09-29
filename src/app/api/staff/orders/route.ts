@@ -6,6 +6,7 @@ import { enforce } from '@/lib/rate-limit'
 import { createStoreOrder } from '@/lib/orders'
 import { decideRails } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 import { payOrigin } from '@/lib/pay-origin'
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     const staff = await requireStaff('associate')
     await enforce('staffOrderCreate', staff.userId)
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
     const order = await createStoreOrder({

@@ -5,6 +5,7 @@ import { requireUser } from '@/lib/auth'
 import { enforce, clientIp } from '@/lib/rate-limit'
 import { claimOrder } from '@/lib/orders'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 
@@ -37,7 +38,7 @@ export async function POST(request: Request) {
     const session = await requireUser()
     await enforce('claimPerUser', session.userId)
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
     const user = await currentUser()

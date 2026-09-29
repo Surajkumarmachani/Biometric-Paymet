@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import { SignInButton } from '@clerk/nextjs'
-import { requireStaff } from '@/lib/auth'
+import { requireStaff, staffMayRefund } from '@/lib/auth'
 import { sql } from '@/lib/db'
 import { toPaise, formatINR } from '@/lib/money'
 import { openRequestsByOrder } from '@/lib/refund-request'
@@ -135,6 +135,7 @@ export default async function StaffOrdersPage({
       receiptNo: r.receipt_no,
       email: r.email,
       inStore: r.store_id !== null,
+      mayAct: staffMayRefund(staff, r.store_id),
       at: new Date(r.created_at).toLocaleString('en-IN', {
         timeZone: 'Asia/Kolkata',
         dateStyle: 'medium',
@@ -169,7 +170,9 @@ export default async function StaffOrdersPage({
             <h1 className="display h-page">Orders &amp; refunds</h1>
             <p className="small muted">
               {canRefund
-                ? 'Look up any order by receipt number, and refund a captured payment.'
+                ? staff.role === 'admin'
+                  ? 'Look up any order by receipt number, and refund a captured payment.'
+                  : 'Look up any order by receipt number. Refunds are for your own store’s orders.'
                 : 'Orders for your store. Refunds require a manager.'}
             </p>
           </div>

@@ -1,6 +1,7 @@
 import 'server-only'
 import { sql } from './db'
 import { fail } from './errors'
+import { scrubPII } from './redact'
 
 /**
  * Fixed-window rate limiting in Postgres.
@@ -80,7 +81,9 @@ export async function checkLimit(
 /** Throws 429 when over the limit. */
 export async function enforce(name: LimitName, subject: string): Promise<void> {
   const { allowed } = await checkLimit(name, subject)
-  if (!allowed) fail('rate_limited', `${name} exceeded for ${subject}`)
+  // The subject may be an email or phone (OTP buckets) — mask those; the
+  // bucket name says what tripped, which is what the log line is for.
+  if (!allowed) fail('rate_limited', `${name} exceeded for ${scrubPII(subject)}`)
 }
 
 export { clientIp } from './client-ip'

@@ -1,6 +1,7 @@
 import 'server-only'
 import { sql, jsonb } from './db'
 import { inetOrNull } from './client-ip'
+import { scrubPII } from './redact'
 
 /**
  * Audit log. Two jobs: dispute evidence, and detecting the security signals the
@@ -103,7 +104,9 @@ export function alertOn(
   event: AuditEvent,
   detail: Record<string, unknown>,
 ): void {
-  console.error(JSON.stringify({ level: 'error', alert: true, event, ...detail }))
+  // Alerts leave the building (Slack), so emails and phone numbers are masked.
+  const line = scrubPII(JSON.stringify({ level: 'error', alert: true, event, ...detail }))
+  console.error(line)
 
   const url = process.env.ALERT_WEBHOOK_URL
   if (!url) return
@@ -111,7 +114,7 @@ export function alertOn(
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      text: `🚨 *${event}*\n\`\`\`${JSON.stringify(detail, null, 2)}\`\`\``,
+      text: `🚨 *${event}*\n\`\`\`${scrubPII(JSON.stringify(detail, null, 2))}\`\`\``,
     }),
   }).catch((err) =>
     console.error(

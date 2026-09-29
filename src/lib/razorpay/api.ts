@@ -2,6 +2,7 @@ import 'server-only'
 import { serverEnv } from '@/env'
 import { toPaise, type Paise } from '@/lib/money'
 import { ApiError } from '@/lib/errors'
+import { scrubPII } from '@/lib/redact'
 
 /**
  * Razorpay REST calls we actually depend on.
@@ -71,7 +72,7 @@ async function call<T>(
   if (!res.ok) {
     throw new ApiError(
       'upstream_error',
-      `razorpay ${init?.method ?? 'GET'} ${path} -> ${res.status} ${text.slice(0, 500)}`,
+      `razorpay ${init?.method ?? 'GET'} ${path} -> ${res.status} ${scrubPII(text.slice(0, 500))}`,
     )
   }
   return JSON.parse(text) as T

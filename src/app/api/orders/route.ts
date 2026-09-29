@@ -6,6 +6,7 @@ import { enforce } from '@/lib/rate-limit'
 import { createWebOrder } from '@/lib/orders'
 import { decideRails, expectedGestures } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
 
@@ -44,7 +45,7 @@ export async function POST(request: Request) {
     const session = await requireUser()
     await enforce('orderCreatePerUser', session.userId)
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
     const user = await currentUser()

@@ -5,6 +5,7 @@ import { checkLimit, enforce, clientIp } from '@/lib/rate-limit'
 import { createAndSendOtp, normalizeIdentifier, smsAllowed } from '@/lib/otp'
 import { audit, alertOn } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
+import { readJson } from '@/lib/body'
 import { requireApiKey } from '@/lib/api-keys'
 
 export const runtime = 'nodejs'
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     const session = await requireUser()
     const ip = clientIp(request.headers)
 
-    const parsed = Body.safeParse(await request.json())
+    const parsed = Body.safeParse(await readJson(request))
     if (!parsed.success) fail('invalid_request', parsed.error.message)
     const contact = normalizeIdentifier(parsed.data.identifier)
     if (!contact) fail('invalid_request', 'identifier must be an email or a phone number')

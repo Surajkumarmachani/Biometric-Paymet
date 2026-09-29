@@ -125,6 +125,21 @@ export function staffMaySee(
   return !!orderStoreId && staff.storeId === orderStoreId
 }
 
+/**
+ * May this staff member refund (or decline a refund request on) an order?
+ * Admins: any. Managers: their own store only, so never a web order. This
+ * mirrors app.staff_may_refund (0017), which is the real gate; this copy only
+ * decides whether the UI offers the button.
+ */
+export function staffMayRefund(
+  staff: { storeId: string; role: StaffSession['role'] } | null | undefined,
+  orderStoreId: string | null | undefined,
+): boolean {
+  if (!staff) return false
+  if (staff.role === 'admin') return true
+  return staff.role === 'manager' && !!orderStoreId && staff.storeId === orderStoreId
+}
+
 /** Non-throwing staff lookup with store, for read-only visibility checks. */
 export async function staffOf(
   userId: string | null | undefined,

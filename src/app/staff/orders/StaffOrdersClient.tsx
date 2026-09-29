@@ -27,6 +27,8 @@ export interface StaffOrder {
   receiptNo: string | null
   email: string | null
   inStore: boolean
+  /** This viewer may refund / decline on this order (own store, or admin). */
+  mayAct: boolean
   at: string
   refundable: boolean
   /** The customer's open ask, if they made one. */
@@ -153,7 +155,7 @@ export default function StaffOrdersClient({
 
                   <div className="row" style={{ gap: 'var(--s4)' }}>
                     <span className="amount" style={{ fontWeight: 600 }}>{o.amountDisplay}</span>
-                    {canRefund && (o.refundable || o.refundRequest) && (
+                    {canRefund && o.mayAct && (o.refundable || o.refundRequest) && (
                       <button
                         className={`btn btn-sm ${o.refundRequest ? 'btn-primary' : 'btn-danger'}`}
                         onClick={() => setOpenId(openId === o.id ? null : o.id)}
@@ -168,7 +170,7 @@ export default function StaffOrdersClient({
                   </div>
                 </div>
 
-                {canRefund && openId === o.id && (
+                {canRefund && o.mayAct && openId === o.id && (
                   <RefundForm
                     order={o}
                     onDone={() => { setOpenId(null); router.refresh() }}

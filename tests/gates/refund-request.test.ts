@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createTestDb, one, paise, expectDenied, ALICE, BOB, PRIYA, idem, type TestDb } from '../setup/pg'
+import { createTestDb, one, paise, expectDenied, ALICE, BOB, PRIYA, STORE, idem, type TestDb } from '../setup/pg'
 
 /**
  * Gate: CUSTOMER REFUND REQUESTS (0013).
@@ -181,6 +181,8 @@ describe('withdraw / decline / approve', () => {
 
   it('declines with a note, and only while open', async () => {
     const order = await paidOrder()
+    // PRIYA manages STORE; a manager only decides for their own store (0017).
+    await db.sql`update orders set store_id = ${STORE}::uuid where id = ${order.id}::uuid`
     const opened = await request(order.id, ALICE)
 
     const d = one<{ ok: boolean; status?: string }>(
@@ -262,5 +264,18 @@ describe('RLS on refund_requests', () => {
     await expectDenied(() => db.asAnon((tx) => tx`
       select id from refund_requests where order_id = ${order.id}::uuid
     `))
+  })
+})
+
+describe('managers decide only for their own store (0017)', () => {
+  it("cannot decline another store's or a web order's request", async () => {
+    const order = await paidOrder() // web order: no store
+    const opened = await request(order.id, ALICE)
+    const d = one<{ ok: boolean; reason?: string }>(
+      await db.sql`select app.decline_refund_request(${opened.request_id}::uuid, ${PRIYA}, ${null})`,
+    )
+    // Reported like a stale view: nothing about another store's queue leaks.
+    expect(d.ok).toBe(false)
+    expect(d.reason).toBe('not_open')
   })
 })

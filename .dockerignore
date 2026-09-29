@@ -1,0 +1,24 @@
+# Never ship secrets or local state into the image.
+.env
+.env.*
+!.env.example
+.clerk
+
+# Rebuilt inside the image.
+node_modules
+.next
+.next-*
+tsconfig.tsbuildinfo
+
+# Not needed to run the server.
+.git
+.github
+tests
+docs
+coverage
+zap-report*.html
+zap.yaml
+*.md
+!README.md
+Dockerfile
+.dockerignore

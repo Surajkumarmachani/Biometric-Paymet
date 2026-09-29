@@ -86,6 +86,11 @@ const nextConfig = {
 
   distDir,
 
+  // The Dockerfile sets NEXT_OUTPUT=standalone so the Cloud Run image carries
+  // only the traced server files. Local dev, `next start` and Vercel keep the
+  // default output.
+  ...(process.env.NEXT_OUTPUT === 'standalone' ? { output: 'standalone' } : {}),
+
   allowedDevOrigins: devAllowedOrigins,
 
   // ZAP 10037: Next sends `X-Powered-By: Next.js` by default, which tells an

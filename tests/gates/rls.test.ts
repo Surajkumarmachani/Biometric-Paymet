@@ -286,3 +286,34 @@ describe('S4: staff terminal visibility (store-scoped)', () => {
     expect((asCustomer as unknown as Array<{ ok: boolean }>)[0]!.ok).toBe(false)
   })
 })
+
+describe('grants are exactly the intended surface (0019)', () => {
+  it('anon can only read the public catalogue, and nothing can be written', async () => {
+    const rows = (await db.sql`
+      select grantee, table_name, privilege_type
+        from information_schema.role_table_grants
+       where table_schema = 'public' and grantee in ('anon', 'authenticated')
+       order by 1, 2, 3
+    `) as unknown as Array<{ grantee: string; table_name: string; privilege_type: string }>
+
+    expect(rows.filter((r) => r.privilege_type !== 'SELECT')).toEqual([])
+    expect(rows.filter((r) => r.grantee === 'anon').map((r) => r.table_name).sort()).toEqual(['products', 'stores'])
+  })
+
+  it('every public table has row-level security on', async () => {
+    const rows = (await db.sql`
+      select tablename from pg_tables where schemaname = 'public' and not rowsecurity
+    `) as unknown as Array<{ tablename: string }>
+    expect(rows).toEqual([])
+  })
+
+  it('no app.* function is executable by PUBLIC, anon or authenticated', async () => {
+    const rows = (await db.sql`
+      select p.proname from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+       where n.nspname = 'app'
+         and (has_function_privilege('anon', p.oid, 'execute')
+              or has_function_privilege('authenticated', p.oid, 'execute'))
+    `) as unknown as Array<{ proname: string }>
+    expect(rows).toEqual([])
+  })
+})

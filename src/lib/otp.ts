@@ -49,13 +49,40 @@ function hashCode(identifier: string, code: string): string {
   return crypto.createHash('sha256').update(`${identifier}:${code}`).digest('hex')
 }
 
-type Channel = 'email' | 'sms' | 'unknown'
+type Channel = 'email' | 'sms'
 
-/** Route by identifier shape: an email address -> inbox, a phone number -> SMS. */
-function channelFor(identifier: string): Channel {
-  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(identifier)) return 'email'
-  if (/^\+?[0-9]{8,15}$/.test(identifier.replace(/[\s-]/g, ''))) return 'sms'
-  return 'unknown'
+/**
+ * One canonical spelling per contact, or null if it is not a contact we send to.
+ *
+ * Everything downstream keys on this string — the per-identifier rate-limit
+ * bucket, the challenge row, the code hash — so two spellings of one number
+ * ("+91 98…", "+9198…", "98…") used to be three buckets, and a pumping loop
+ * could walk the formatting to dodge otpPerIdentifier.
+ *
+ *   * email — trimmed and lower-cased
+ *   * phone — separators stripped, E.164. A bare 10-digit Indian mobile
+ *     (starts 6-9) gets +91; any other number must carry its own +country.
+ */
+export function normalizeIdentifier(raw: string): { identifier: string; channel: Channel } | null {
+  const s = raw.trim()
+  if (/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)) return { identifier: s.toLowerCase(), channel: 'email' }
+  const digits = s.replace(/[\s\-().]/g, '')
+  if (/^[6-9][0-9]{9}$/.test(digits)) return { identifier: `+91${digits}`, channel: 'sms' }
+  if (/^\+[1-9][0-9]{7,14}$/.test(digits)) return { identifier: digits, channel: 'sms' }
+  return null
+}
+
+/**
+ * Country codes we will text. SMS pumping (toll fraud) makes its money on
+ * premium-rate international numbers, so a verification SMS only goes to
+ * countries the business actually serves. Comma list, default India.
+ */
+export function smsAllowed(e164: string): boolean {
+  const prefixes = (process.env.OTP_SMS_ALLOWED_PREFIXES ?? '+91')
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  return prefixes.some((p) => e164.startsWith(p))
 }
 
 /** Email via Resend (https://resend.com). Returns false if not configured. */
@@ -114,7 +141,7 @@ async function sendSms(to: string, code: string): Promise<boolean> {
  * without the code.
  */
 async function sendCode(identifier: string, code: string, purpose: OtpPurpose): Promise<boolean> {
-  const channel = channelFor(identifier)
+  const channel = normalizeIdentifier(identifier)?.channel ?? 'unknown'
   try {
     if (channel === 'email' && (await sendEmail(identifier, code))) return true
     if (channel === 'sms' && (await sendSms(identifier, code))) return true

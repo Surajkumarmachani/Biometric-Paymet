@@ -281,23 +281,58 @@ describe('disputes', () => {
     return { ...o, paymentId }
   }
 
-  it('created -> disputed, lost -> charged_back, won -> paid', async () => {
-    const o = await paidOrder('1')
-
-    let r = one<{ status: string }>(
-      await db.sql`select app.apply_dispute(${o.paymentId}, ${'disp_1'}, ${'created'})`,
+  const dispute = (paymentId: string, id: string, status: string) =>
+    db.sql`select app.apply_dispute(${paymentId}, ${id}, ${status})`.then((r) =>
+      one<{ status: string; dispute_status: string; ignored_stale: boolean }>(r),
     )
-    expect(r.status).toBe('disputed')
 
-    r = one<{ status: string }>(
-      await db.sql`select app.apply_dispute(${o.paymentId}, ${'disp_1'}, ${'lost'})`,
-    )
-    expect(r.status).toBe('charged_back')
+  it('created -> disputed, won -> paid; created -> disputed, lost -> charged_back', async () => {
+    const a = await paidOrder('1a')
+    expect((await dispute(a.paymentId, 'disp_1a', 'created')).status).toBe('disputed')
+    expect((await dispute(a.paymentId, 'disp_1a', 'won')).status).toBe('paid')
 
-    r = one<{ status: string }>(
-      await db.sql`select app.apply_dispute(${o.paymentId}, ${'disp_1'}, ${'won'})`,
-    )
+    const b = await paidOrder('1b')
+    expect((await dispute(b.paymentId, 'disp_1b', 'created')).status).toBe('disputed')
+    expect((await dispute(b.paymentId, 'disp_1b', 'lost')).status).toBe('charged_back')
+  })
+
+  // --- security review #4: a dispute event cannot rewrite a settled outcome ---
+
+  it('charged_back is terminal: a later won/closed/created cannot undo it', async () => {
+    const o = await paidOrder('cb')
+    expect((await dispute(o.paymentId, 'disp_cb', 'lost')).status).toBe('charged_back')
+    for (const late of ['won', 'closed', 'created', 'under_review']) {
+      expect((await dispute(o.paymentId, 'disp_cb', late)).status).toBe('charged_back')
+    }
+    // Even a replayed "won" under a DIFFERENT dispute id.
+    expect((await dispute(o.paymentId, 'disp_cb_other', 'won')).status).toBe('charged_back')
+  })
+
+  it('a stale open status cannot regress a final dispute row', async () => {
+    const o = await paidOrder('stale')
+    await dispute(o.paymentId, 'disp_st', 'created')
+    await dispute(o.paymentId, 'disp_st', 'won')
+    const r = await dispute(o.paymentId, 'disp_st', 'under_review')
+    expect(r.dispute_status).toBe('won')
+    expect(r.ignored_stale).toBe(true)
     expect(r.status).toBe('paid')
+  })
+
+  it('a refunded order stays refunded unless the dispute is lost', async () => {
+    const o = await paidOrder('rf')
+    await db.sql`select app.apply_refund(${o.paymentId}, ${'rfnd_rf'}, ${o.amount}, ${'processed'})`
+    expect((await dispute(o.paymentId, 'disp_rf', 'created')).status).toBe('refunded')
+    expect((await dispute(o.paymentId, 'disp_rf2', 'won')).status).toBe('refunded')
+    // Refunded AND charged back is a second loss; the books must show it.
+    expect((await dispute(o.paymentId, 'disp_rf3', 'lost')).status).toBe('charged_back')
+  })
+
+  it('won on one dispute does not clear the order while another is still open', async () => {
+    const o = await paidOrder('two')
+    await dispute(o.paymentId, 'disp_two_a', 'created')
+    await dispute(o.paymentId, 'disp_two_b', 'created')
+    expect((await dispute(o.paymentId, 'disp_two_a', 'won')).status).toBe('disputed')
+    expect((await dispute(o.paymentId, 'disp_two_b', 'closed')).status).toBe('paid')
   })
 
   it('a post-paid state is sticky against further payment events', async () => {

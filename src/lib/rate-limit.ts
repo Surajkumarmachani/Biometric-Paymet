@@ -45,9 +45,18 @@ export const LIMITS = {
   /** OTP fallback — SMS pumping / toll fraud. */
   otpPerIdentifier: { limit: 5, windowSeconds: 3600 },
   otpPerIp: { limit: 10, windowSeconds: 3600 },
+  /** One account's share of the SMS budget — the IP can rotate, the account cannot. */
+  otpPerUser: { limit: 5, windowSeconds: 3600 },
   otpGlobal: { limit: 500, windowSeconds: 3600 },
   /** Admin key management. Counted before the token compare, so it bounds guessing. */
   adminPerIp: { limit: 30, windowSeconds: 60 },
+  /**
+   * Every admin attempt, from anywhere. A backstop for the per-IP bucket: admin
+   * traffic is a person minting a key now and then, so a ceiling this low
+   * costs nothing legitimate and caps total guessing even if IP bucketing is
+   * ever fooled again.
+   */
+  adminGlobal: { limit: 120, windowSeconds: 3600 },
 } as const satisfies Record<string, Limit>
 
 export type LimitName = keyof typeof LIMITS
@@ -74,12 +83,4 @@ export async function enforce(name: LimitName, subject: string): Promise<void> {
   if (!allowed) fail('rate_limited', `${name} exceeded for ${subject}`)
 }
 
-/**
- * Best-effort client IP. Behind Vercel, x-forwarded-for is set by the platform;
- * treat it as untrusted for anything but rate-limit bucketing.
- */
-export function clientIp(headers: Headers): string {
-  const xff = headers.get('x-forwarded-for')
-  if (xff) return xff.split(',')[0]!.trim()
-  return headers.get('x-real-ip') ?? '0.0.0.0'
-}
+export { clientIp } from './client-ip'

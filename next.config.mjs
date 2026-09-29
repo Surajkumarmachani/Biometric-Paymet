@@ -93,6 +93,12 @@ const nextConfig = {
   // it. Removing it is not defence in depth, it is just not volunteering.
   poweredByHeader: false,
 
+  // Nothing here uses next/image, so the /_next/image optimiser is pure attack
+  // surface: it decodes untrusted AVIF/HEIF through sharp/libvips, which is
+  // where Next's image-optimiser RCE advisories live. Unoptimized turns the
+  // endpoint off entirely rather than trusting the next patch.
+  images: { unoptimized: true },
+
   // Razorpay's SDK is CommonJS and reaches for node:crypto / axios. Keep it
   // external so the bundler doesn't try to trace it into an edge-ish build.
   serverExternalPackages: ['razorpay', 'postgres', 'qrcode'],

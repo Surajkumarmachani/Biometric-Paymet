@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser } from '@/lib/auth'
 import { checkLimit, enforce, clientIp } from '@/lib/rate-limit'
-import { createAndSendOtp } from '@/lib/otp'
+import { createAndSendOtp, normalizeIdentifier, smsAllowed } from '@/lib/otp'
 import { audit, alertOn } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { requireApiKey } from '@/lib/api-keys'
@@ -17,6 +17,11 @@ export const dynamic = 'force-dynamic'
  * cost real money at a provider, so it carries three overlapping limits from
  * day one (rate-limit.ts): per identifier, per IP, and a global ceiling that
  * pages someone rather than just 429-ing. All three must pass.
+ *
+ * The identifier is normalised before any bucket sees it, SMS only goes to
+ * OTP_SMS_ALLOWED_PREFIXES, and each user gets their own ceiling — without
+ * that last one, one free account could spend the whole global budget on
+ * premium-rate numbers and lock every real customer out.
  *
  * Requires a signed-in user — the merchant-side fallback verifies a contact for
  * someone we already know. (Anonymous sign-in-time codes are Clerk's own
@@ -36,7 +41,12 @@ export async function POST(request: Request) {
 
     const parsed = Body.safeParse(await request.json())
     if (!parsed.success) fail('invalid_request', parsed.error.message)
-    const { identifier } = parsed.data
+    const contact = normalizeIdentifier(parsed.data.identifier)
+    if (!contact) fail('invalid_request', 'identifier must be an email or a phone number')
+    if (contact.channel === 'sms' && !smsAllowed(contact.identifier)) {
+      fail('invalid_request', 'SMS is not available for this country')
+    }
+    const { identifier } = contact
     const purpose = parsed.data.purpose ?? 'verify'
 
     // Global ceiling first, and alert the moment it trips — a global spike is a
@@ -52,6 +62,7 @@ export async function POST(request: Request) {
       fail('rate_limited', 'otp global ceiling')
     }
 
+    await enforce('otpPerUser', session.userId)
     await enforce('otpPerIp', ip)
     await enforce('otpPerIdentifier', identifier)
 

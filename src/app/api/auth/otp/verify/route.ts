@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireUser } from '@/lib/auth'
 import { enforce, clientIp } from '@/lib/rate-limit'
-import { verifyOtp } from '@/lib/otp'
+import { verifyOtp, normalizeIdentifier } from '@/lib/otp'
 import { audit } from '@/lib/audit'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { requireApiKey } from '@/lib/api-keys'
@@ -35,7 +35,10 @@ export async function POST(request: Request) {
 
     const parsed = Body.safeParse(await request.json())
     if (!parsed.success) fail('invalid_request', parsed.error.message)
-    const { identifier, code } = parsed.data
+    const contact = normalizeIdentifier(parsed.data.identifier)
+    if (!contact) fail('invalid_request', 'identifier must be an email or a phone number')
+    const { identifier } = contact
+    const { code } = parsed.data
     const purpose = parsed.data.purpose ?? 'verify'
 
     const result = await verifyOtp({ identifier, code, purpose })

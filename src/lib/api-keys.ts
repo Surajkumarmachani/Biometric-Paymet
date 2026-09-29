@@ -61,6 +61,7 @@ export async function requireAdmin(request: Request): Promise<void> {
   if (!expected) fail('not_found', 'admin disabled: ADMIN_TOKEN unset')
 
   await enforce('adminPerIp', clientIp(request.headers))
+  await enforce('adminGlobal', 'all')
 
   const given = request.headers.get('x-admin-token') ?? ''
   // Compare digests so the lengths always match and timingSafeEqual cannot throw.

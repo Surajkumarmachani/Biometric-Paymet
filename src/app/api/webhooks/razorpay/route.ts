@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextResponse } from 'next/server'
 import { sql, jsonb } from '@/lib/db'
 import { serverEnv } from '@/env'
@@ -72,16 +73,32 @@ export async function POST(request: Request) {
     return new NextResponse('unexpected payload shape', { status: 400 })
   }
 
+  // Razorpay retries for 24 hours and then gives up, so a correctly signed body
+  // much older than that is not a retry — it is someone replaying one they
+  // kept. Acknowledge (so nothing retries) and drop it.
+  const ageHours = (Date.now() / 1000 - event.created_at) / 3600
+  if (ageHours > webhookMaxAgeHours()) {
+    alertOn('webhook_rejected', { reason: 'stale event', eventId, ageHours: Math.round(ageHours) })
+    return new NextResponse('ok (stale, ignored)', { status: 200 })
+  }
+
+  // The event-id header is NOT covered by the signature, so it cannot be the
+  // only dedupe key: the same signed bytes under a new id would process twice.
+  // One ledger row per signed body closes that; a genuine redelivery carries
+  // the same body AND id, and either unique key reports it as a duplicate.
+  const bodySha256 = createHash('sha256').update(raw, 'utf8').digest('hex')
+
   try {
     await sql`
       insert into razorpay_webhook_events
-        (event_id, event_type, razorpay_created_at, payload, status)
+        (event_id, event_type, razorpay_created_at, payload, status, body_sha256)
       values (
         ${eventId},
         ${event.event},
         ${new Date(event.created_at * 1000).toISOString()},
         ${jsonb(event)}::jsonb,
-        'pending'
+        'pending',
+        ${bodySha256}
       )
     `
   } catch (err) {
@@ -104,4 +121,10 @@ export async function POST(request: Request) {
 
   // Inside the 5s budget, with no business logic attempted.
   return new NextResponse('ok', { status: 200 })
+}
+
+/** Oldest signed event we will still ledger. Default 72h: Razorpay's 24h retry window plus slack. */
+function webhookMaxAgeHours(): number {
+  const n = Number(process.env.WEBHOOK_MAX_AGE_HOURS)
+  return Number.isFinite(n) && n > 0 ? n : 72
 }

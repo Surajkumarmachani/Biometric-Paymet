@@ -1,6 +1,7 @@
 import 'server-only'
 import { sql, rpc } from './db'
 import { applyPaymentById, reconcileOrder } from './orders'
+import { fetchDispute } from './razorpay/api'
 import { issueCreditNote } from './credit-note'
 import { audit, alertOn } from './audit'
 import { toPaise } from './money'
@@ -148,14 +149,17 @@ async function handleEvent(row: LedgerRow): Promise<void> {
 
   // --- disputes -------------------------------------------------------------
   if (type.startsWith('payment.dispute.')) {
-    const d = p.dispute?.entity
-    if (!d?.id || !d.payment_id) throw new Error(`${type}: incomplete dispute entity`)
-    const status = type.slice('payment.dispute.'.length) // created|won|lost|closed|...
+    const hinted = p.dispute?.entity
+    if (!hinted?.id) throw new Error(`${type}: incomplete dispute entity`)
+    // Re-read truth, same as payments: the payload is a snapshot from when the
+    // event fired, and a stale one used to be able to un-chargeback an order.
+    const d = await fetchDispute(hinted.id)
+    const status = d.status
     const out = await rpc<{ order_id: string; status: string }>(sql`
       select app.apply_dispute(
         ${d.payment_id},
         ${d.id},
-        ${d.status ?? status},
+        ${d.status},
         ${d.amount == null ? null : toPaise(d.amount)},
         ${d.respond_by ? new Date(d.respond_by * 1000).toISOString() : null}
       )

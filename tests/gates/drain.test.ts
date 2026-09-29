@@ -185,3 +185,25 @@ describe('end-to-end through the ledger', () => {
     expect(finished[0]!.status).toBe('processed')
   })
 })
+
+describe('webhook replay (security review #4)', () => {
+  it('accepts one ledger row per signed body, whatever event id rides along', async () => {
+    const row = (id: string) => db.sql`
+      insert into razorpay_webhook_events
+        (event_id, event_type, razorpay_created_at, payload, body_sha256)
+      values (${id}, ${'payment.dispute.won'}, now(), ${db.sql.json({})}::jsonb, ${'a'.repeat(64)})
+    `
+    await row('evt_replay_original')
+    // Same signed bytes re-posted with a fresh X-Razorpay-Event-Id header.
+    await expect(row('evt_replay_forged')).rejects.toMatchObject({ code: '23505' })
+  })
+
+  it('still ledgers old rows that predate the body hash', async () => {
+    for (const id of ['evt_nohash_1', 'evt_nohash_2']) {
+      await db.sql`
+        insert into razorpay_webhook_events (event_id, event_type, razorpay_created_at, payload)
+        values (${id}, ${'payment.captured'}, now(), ${db.sql.json({})}::jsonb)
+      `
+    }
+  })
+})

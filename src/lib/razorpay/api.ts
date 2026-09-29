@@ -143,6 +143,23 @@ export async function refundPayment(args: {
   })
 }
 
+export interface RazorpayDispute {
+  id: string
+  payment_id: string
+  amount: number
+  status: string
+  respond_by?: number | null
+}
+
+/**
+ * One dispute as Razorpay holds it NOW. The drain uses this instead of the
+ * webhook payload's copy, so a late, reordered or replayed dispute event can
+ * only ever apply the current status.
+ */
+export async function fetchDispute(disputeId: string): Promise<RazorpayDispute> {
+  return call<RazorpayDispute>(`/disputes/${encodeURIComponent(disputeId)}`)
+}
+
 export interface RazorpaySettlement {
   id: string
   amount: number

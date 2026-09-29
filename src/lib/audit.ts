@@ -1,5 +1,6 @@
 import 'server-only'
 import { sql, jsonb } from './db'
+import { inetOrNull } from './client-ip'
 
 /**
  * Audit log. Two jobs: dispute evidence, and detecting the security signals the
@@ -73,7 +74,7 @@ export async function audit(input: AuditInput): Promise<void> {
         ${input.event},
         ${input.outcome},
         ${input.credentialId ?? null},
-        ${input.ip ?? null}::inet,
+        ${inetOrNull(input.ip)}::inet,
         ${input.userAgent ?? null},
         ${jsonb(input.detail ?? {})}::jsonb
       )

@@ -19,7 +19,7 @@
     "db:reset": "tsx scripts/db-reset.mts",
     "db:pg:start": "bash scripts/pg-local.sh start",
     "db:pg:stop": "bash scripts/pg-local.sh stop",
-    "db:local:reset": "DATABASE_URL=postgresql://postgres@127.0.0.1:5433/regal tsx scripts/db-reset.mts --with-shim",
+    "db:local:reset": "DATABASE_URL=postgresql://postgres@127.0.0.1:5433/regal tsx scripts/db-reset.mts --with-shim --with-seed",
     "build:check": "NEXT_DIST_DIR=.next-build next build"
   },
   "dependencies": {

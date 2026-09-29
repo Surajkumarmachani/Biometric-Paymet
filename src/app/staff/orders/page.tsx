@@ -86,19 +86,25 @@ export default async function StaffOrdersPage({
       left join app_users u on u.clerk_id = o.user_id
   `
 
+  // Associates search within their own store only; managers and admins see
+  // every store (staffMaySee). The scope applies to EVERY branch — it used to
+  // cover only the default list, so `?q=%` listed all stores with emails.
+  const scope = canRefund ? sql`true` : sql`o.store_id = ${staff.storeId}::uuid`
+  // Receipt numbers are plain text; % and _ in the query are literals, not
+  // wildcards.
+  const likeQ = '%' + q.replace(/[\\%_]/g, (c) => '\\' + c) + '%'
+
   let rows: Row[]
   if (isUuid) {
-    rows = (await sql`${select} where o.id = ${q}::uuid limit 1`) as unknown as Row[]
+    rows = (await sql`${select} where o.id = ${q}::uuid and ${scope} limit 1`) as unknown as Row[]
   } else if (q) {
     rows = (await sql`
-      ${select} where o.receipt_no ilike ${'%' + q + '%'}
+      ${select} where o.receipt_no ilike ${likeQ} and ${scope}
       order by o.created_at desc limit 50
     `) as unknown as Row[]
-  } else if (canRefund) {
-    rows = (await sql`${select} order by o.created_at desc limit 40`) as unknown as Row[]
   } else {
     rows = (await sql`
-      ${select} where o.store_id = ${staff.storeId}::uuid
+      ${select} where ${scope}
       order by o.created_at desc limit 40
     `) as unknown as Row[]
   }

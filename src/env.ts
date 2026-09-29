@@ -43,7 +43,7 @@ const schema = z.object({
   WEBAUTHN_ALLOWED_ORIGINS: optionalSecret,
 
   MERCHANT_MCC: z.string().default('5944'),
-  INTERNAL_TASK_SECRET: z.string().min(16),
+  INTERNAL_TASK_SECRET: z.string().min(32),
 })
 
 export type ServerEnv = z.infer<typeof schema>

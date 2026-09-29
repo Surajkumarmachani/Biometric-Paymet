@@ -46,7 +46,8 @@ export async function POST(
     if (!a.has({ reverification: REVERIFY_CONFIG })) {
       return NextResponse.json(reverificationError(REVERIFY_CONFIG), { status: 403 })
     }
-    if (!reverificationIdFromClaims(a.sessionClaims)) {
+    const reverificationId = reverificationIdFromClaims(a.sessionClaims)
+    if (!reverificationId) {
       fail(
         'forbidden',
         'reverification_id claim missing — add {"reverification_id":"{{session.reverification_id}}"} to the Clerk session token',
@@ -61,67 +62,61 @@ export async function POST(
     const parsed = Body.safeParse(await request.json())
     if (!parsed.success) fail('invalid_request', parsed.error.message)
 
-    // Find the captured attempt. Only a captured payment can be refunded, and
-    // there is at most one per order because capture makes the order `paid`.
-    const rows = (await sql`
-      select pa.razorpay_payment_id, pa.amount_paise, o.status,
-             o.amount_captured_paise, o.amount_refunded_paise
-        from payment_attempts pa
-        join orders o on o.id = pa.order_id
-       where pa.order_id = ${id}::uuid and pa.status = 'captured'
-       limit 1
-    `) as unknown as Array<{
-      razorpay_payment_id: string
-      amount_paise: string
-      status: string
-      amount_captured_paise: string
-      amount_refunded_paise: string
-    }>
-
-    const attempt = rows[0]
-    if (!attempt) fail('conflict', 'no captured payment on this order')
-
-    const captured = toPaise(attempt.amount_captured_paise)
-
-    // The ceiling must count every refund we have already COMMITTED to, not just
-    // the settled ones. orders.amount_refunded_paise deliberately sums only
-    // `processed` refunds (money actually returned), so using it here would let a
-    // second full refund through while the first is still `pending` — issuing two
-    // real refunds for one payment. Accounting stays processed-only; the guard is
-    // pending+processed.
-    const committedRows = (await sql`
-      select coalesce(sum(amount_paise), 0)::text as total
-        from refunds
-       where order_id = ${id}::uuid
-         and status in ('pending', 'processed')
-    `) as unknown as Array<{ total: string }>
-    const committed = toPaise(committedRows[0]?.total ?? '0')
-
-    const remaining = captured - committed
-    const requested = parsed.data.amountPaise ?? remaining
-
-    if (remaining <= 0) fail('conflict', 'this payment is already fully refunded or a refund is pending')
-    if (requested <= 0) fail('conflict', 'nothing left to refund')
-    if (requested > remaining) {
-      fail('invalid_request', 'refund exceeds the remaining refundable amount')
+    // One step-up buys one refund. Clerk keeps a reverification valid for its
+    // whole window, so a spent one gets a fresh prompt, not an error.
+    if (await refundGestureUsed(reverificationId)) {
+      return NextResponse.json(reverificationError(REVERIFY_CONFIG), { status: 403 })
     }
 
-    const refund = await refundPayment({
-      paymentId: attempt.razorpay_payment_id,
-      amountPaise: requested,
-      notes: { order_id: id, reason: parsed.data.reason, staff_id: staff.userId },
-    })
+    /*
+     * Admission, the Razorpay call and the bookkeeping share ONE transaction.
+     *
+     * app.reserve_refund locks the order row, requires `paid` (a charged_back
+     * or disputed order must not be refunded on top of the bank's clawback),
+     * spends the step-up, and reports what is still refundable. The lock is
+     * held across the Razorpay call, so a second manager refunding the same
+     * order waits and then sees the first refund in its ceiling, instead of
+     * both passing the same stale number.
+     *
+     * The ceiling counts pending + processed refunds, not just the settled
+     * ones: orders.amount_refunded_paise is processed-only by design, and
+     * using it here would let a second full refund through while the first is
+     * still pending.
+     */
+    const { refund, out, requested } = await sql.begin(async (tx) => {
+      const reserved = await rpc<{
+        razorpay_payment_id: string
+        remaining_paise: string
+      }>(tx`select app.reserve_refund(${id}::uuid, ${reverificationId}, ${staff.userId})`)
 
-    // Record immediately; the refund.processed webhook will converge on the
-    // final status via the same function.
-    const out = await rpc<{ amount_refunded_paise: string; fully_refunded: boolean }>(sql`
-      select app.apply_refund(
-        ${attempt.razorpay_payment_id},
-        ${refund.id},
-        ${toPaise(refund.amount)},
-        ${refund.status}
-      )
-    `)
+      const remaining = toPaise(reserved.remaining_paise)
+      const requested = parsed.data.amountPaise ?? remaining
+
+      if (remaining <= 0) fail('conflict', 'this payment is already fully refunded or a refund is pending')
+      if (requested <= 0) fail('conflict', 'nothing left to refund')
+      if (requested > remaining) {
+        fail('invalid_request', 'refund exceeds the remaining refundable amount')
+      }
+
+      const refund = await refundPayment({
+        paymentId: reserved.razorpay_payment_id,
+        amountPaise: requested,
+        notes: { order_id: id, reason: parsed.data.reason, staff_id: staff.userId },
+      })
+
+      // Record immediately; the refund.processed webhook will converge on the
+      // final status via the same function. If anything after the Razorpay
+      // call throws, that webhook still records the refund.
+      const out = await rpc<{ amount_refunded_paise: string; fully_refunded: boolean }>(tx`
+        select app.apply_refund(
+          ${reserved.razorpay_payment_id},
+          ${refund.id},
+          ${toPaise(refund.amount)},
+          ${refund.status}
+        )
+      `)
+      return { refund, out, requested }
+    })
 
     // Issue the GST credit note here too, not only on the refund.processed
     // webhook: a refund must not depend on webhook delivery to become a legal
@@ -222,4 +217,11 @@ export async function POST(
   } catch (err) {
     return errorResponse(err, requestId)
   }
+}
+
+async function refundGestureUsed(reverificationId: string): Promise<boolean> {
+  const rows = (await sql`
+    select 1 from refund_gestures where reverification_id = ${reverificationId} limit 1
+  `) as unknown as unknown[]
+  return rows.length > 0
 }

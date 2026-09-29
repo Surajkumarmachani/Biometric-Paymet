@@ -108,6 +108,35 @@ export async function staffRole(
   return rows[0]?.role ?? null
 }
 
+/**
+ * May this staff member see an order they did not place?
+ *
+ * One rule, used everywhere an order is shown to staff: associates see their
+ * own store's orders, managers and admins see any store's. Before this was
+ * shared, the order page let ANY staff role open ANY order, and the order
+ * search let associates query across every store.
+ */
+export function staffMaySee(
+  staff: { storeId: string; role: StaffSession['role'] } | null | undefined,
+  orderStoreId: string | null | undefined,
+): boolean {
+  if (!staff) return false
+  if (staff.role === 'manager' || staff.role === 'admin') return true
+  return !!orderStoreId && staff.storeId === orderStoreId
+}
+
+/** Non-throwing staff lookup with store, for read-only visibility checks. */
+export async function staffOf(
+  userId: string | null | undefined,
+): Promise<{ storeId: string; role: StaffSession['role'] } | null> {
+  if (!userId) return null
+  const rows = (await sql`
+    select store_id, role from staff where clerk_id = ${userId} and active limit 1
+  `) as unknown as Array<{ store_id: string; role: StaffSession['role'] }>
+  const row = rows[0]
+  return row ? { storeId: row.store_id, role: row.role } : null
+}
+
 export async function requireStaff(
   minRole: 'associate' | 'manager' | 'admin' = 'associate',
 ): Promise<StaffSession> {
@@ -128,10 +157,16 @@ export async function requireStaff(
   return { ...session, storeId: row.store_id, role: row.role }
 }
 
+/** Shortest ADMIN_TOKEN / INTERNAL_TASK_SECRET we will honour (= openssl rand -hex 16). */
+export const MIN_SECRET_LENGTH = 32
+
 /** Guards the cron-driven internal routes. Constant-time compare. */
 export function assertInternalSecret(header: string | null): void {
   const expected = process.env.INTERNAL_TASK_SECRET
   if (!expected || !header) fail('forbidden', 'internal secret missing')
+  // A short secret is guessable; treat it as no secret at all (fail closed)
+  // rather than run the crons behind it. Generate with: openssl rand -hex 32
+  if (expected.length < MIN_SECRET_LENGTH) fail('forbidden', 'INTERNAL_TASK_SECRET shorter than 32 chars')
   const a = Buffer.from(header, 'utf8')
   const b = Buffer.from(expected, 'utf8')
   if (a.length !== b.length) fail('forbidden', 'internal secret mismatch')

@@ -5,8 +5,13 @@
  * already provides the auth schema, auth.jwt() and the anon/authenticated/
  * service_role roles, and recreating them there would be wrong.
  *
- *   npm run db:reset              # against a real Supabase project
- *   npm run db:reset -- --with-shim   # against a vanilla local Postgres
+ * Skips 0003_seed_dev.sql unless --with-seed is passed. It creates ₹1 and ₹5
+ * "Test Item" products, a fake store and a fake manager — fine on a laptop,
+ * a live ₹1 checkout and a stranger's staff row in production. The go-live
+ * checklist runs this script against prod, so the safe default is "no seed".
+ *
+ *   npm run db:reset                               # production: no shim, no seed
+ *   npm run db:reset -- --with-shim --with-seed    # a vanilla local Postgres
  */
 import postgres from 'postgres'
 import { readFileSync, readdirSync } from 'node:fs'
@@ -19,6 +24,7 @@ if (!url) {
 }
 
 const withShim = process.argv.includes('--with-shim')
+const withSeed = process.argv.includes('--with-seed')
 const dir = join(process.cwd(), 'supabase', 'migrations')
 const sql = postgres(url, { max: 1, onnotice: () => {} })
 
@@ -27,6 +33,10 @@ try {
     if (!file.endsWith('.sql')) continue
     if (file.includes('local_supabase_shim') && !withShim) {
       console.log(`skip  ${file}  (Supabase provides this; pass --with-shim for local PG)`)
+      continue
+    }
+    if (file.includes('seed_dev') && !withSeed) {
+      console.log(`skip  ${file}  (dev fixtures; pass --with-seed for a local database)`)
       continue
     }
     process.stdout.write(`apply ${file} ... `)

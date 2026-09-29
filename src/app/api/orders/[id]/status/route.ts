@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireUser } from '@/lib/auth'
+import { requireUser, staffOf, staffMaySee } from '@/lib/auth'
 import { enforce } from '@/lib/rate-limit'
 import { sql } from '@/lib/db'
 import { reconcileOrder } from '@/lib/orders'
@@ -72,16 +72,7 @@ export async function GET(
      * money.
      */
     if (order.user_id !== session.userId) {
-      const staff = (await sql`
-        select store_id, role from staff
-         where clerk_id = ${session.userId} and active
-         limit 1
-      `) as unknown as Array<{ store_id: string; role: string }>
-
-      const row = staff[0]
-      const privileged = row?.role === 'manager' || row?.role === 'admin'
-      const sameStore = !!row && !!order.store_id && row.store_id === order.store_id
-      if (!row || !(privileged || sameStore)) fail('forbidden', 'not your order')
+      if (!staffMaySee(await staffOf(session.userId), order.store_id)) fail('forbidden', 'not your order')
     }
 
     // Inline fast reconcile while the payment is genuinely fresh.

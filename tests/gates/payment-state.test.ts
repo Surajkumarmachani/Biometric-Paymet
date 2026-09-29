@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
-import { createTestDb, one, paise, ALICE, idem, type TestDb } from '../setup/pg'
+import { createTestDb, one, paise, ALICE, BOB, idem, type TestDb } from '../setup/pg'
 
 /**
  * Gate: PAYMENT STATE — the §7 invariants.
@@ -520,5 +520,108 @@ describe('webhook ledger', () => {
 
     const report = one<{ events_purged: number }>(await db.sql`select app.sweep()`)
     expect(report.events_purged).toBeGreaterThanOrEqual(1)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Security review #5 + refund step-up/race: app.reserve_refund (0016)
+// ---------------------------------------------------------------------------
+describe('reserve_refund', () => {
+  async function paidOrder() {
+    const o = await readyOrder()
+    const paymentId = `pay_rr_${seq}`
+    one(await apply({ rzp: o.rzp, paymentId, status: 'captured', amount: o.amount }))
+    return { ...o, paymentId }
+  }
+  const reserve = (orderId: string, gesture: string) =>
+    db.sql`select app.reserve_refund(${orderId}::uuid, ${gesture}, ${'user_staff_priya'})`.then((r) =>
+      one<{ razorpay_payment_id: string; remaining_paise: string }>(r),
+    )
+
+  it('admits a paid order and reports what is refundable', async () => {
+    const o = await paidOrder()
+    const r = await reserve(o.id, `g_ok_${seq}`)
+    expect(r.razorpay_payment_id).toBe(o.paymentId)
+    expect(paise(r.remaining_paise)).toBe(o.amount)
+  })
+
+  it('refuses a charged_back order — the bank already took the money back', async () => {
+    const o = await paidOrder()
+    await db.sql`select app.apply_dispute(${o.paymentId}, ${`disp_rr_${seq}`}, ${'lost'})`
+    await expect(reserve(o.id, `g_cb_${seq}`)).rejects.toMatchObject({ code: '42501' })
+  })
+
+  it('refuses a disputed order', async () => {
+    const o = await paidOrder()
+    await db.sql`select app.apply_dispute(${o.paymentId}, ${`disp_rd_${seq}`}, ${'created'})`
+    await expect(reserve(o.id, `g_dp_${seq}`)).rejects.toMatchObject({ code: '42501' })
+  })
+
+  it('refuses an unpaid order', async () => {
+    const o = await readyOrder()
+    await expect(reserve(o.id, `g_up_${seq}`)).rejects.toMatchObject({ code: '42501' })
+  })
+
+  it('spends each step-up once, even across orders', async () => {
+    const a = await paidOrder()
+    const b = await paidOrder()
+    const gesture = `g_once_${seq}`
+    await reserve(a.id, gesture)
+    await expect(reserve(b.id, gesture)).rejects.toMatchObject({ code: '23505' })
+  })
+
+  it('serialises concurrent refunds: the second sees the first in its ceiling', async () => {
+    const o = await paidOrder()
+    let releaseFirst!: () => void
+    const firstHolds = new Promise<void>((r) => (releaseFirst = r))
+    let firstReserved!: () => void
+    const firstIn = new Promise<void>((r) => (firstReserved = r))
+
+    const first = db.sql.begin(async (tx) => {
+      await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c1_${seq}`}, ${'user_staff_priya'})`
+      firstReserved()
+      await firstHolds // "the Razorpay call"
+      await tx`select app.apply_refund(${o.paymentId}, ${`rfnd_c1_${seq}`}, ${o.amount}, ${'pending'})`
+    })
+
+    await firstIn
+    let secondRemaining: number | null = null
+    const second = db.sql.begin(async (tx) => {
+      const rows = await tx`select app.reserve_refund(${o.id}::uuid, ${`g_c2_${seq}`}, ${'user_staff_priya'}) as r`
+      secondRemaining = paise((rows[0] as { r: { remaining_paise: string } }).r.remaining_paise)
+    })
+
+    // The second is blocked on the row lock while the first is mid-refund.
+    await new Promise((r) => setTimeout(r, 150))
+    expect(secondRemaining).toBeNull()
+
+    releaseFirst()
+    await first
+    await second
+    expect(secondRemaining).toBe(0)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Security review #7: idempotency keys replay only for their owner (0016)
+// ---------------------------------------------------------------------------
+describe('idempotency key ownership', () => {
+  const create = (user: string, key: string) =>
+    db.sql`select app.create_order(${user}, ${db.sql.json([{ sku: 'RL-CUFF-01', qty: 1 }])}::jsonb, ${key})`.then(
+      (r) => one<{ order_id: string; replayed?: boolean }>(r),
+    )
+
+  it('replays for the same user', async () => {
+    const key = idem('own')
+    const a = await create(ALICE, key)
+    const again = await create(ALICE, key)
+    expect(again.order_id).toBe(a.order_id)
+    expect(again.replayed).toBe(true)
+  })
+
+  it("refuses another user's key instead of handing their order back", async () => {
+    const key = idem('steal')
+    await create(ALICE, key)
+    await expect(create(BOB, key)).rejects.toMatchObject({ code: '22023' })
   })
 })

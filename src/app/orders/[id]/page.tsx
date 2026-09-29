@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { auth } from '@clerk/nextjs/server'
 import { SignInButton } from '@clerk/nextjs'
 import { sql } from '@/lib/db'
-import { staffRole } from '@/lib/auth'
+import { staffOf, staffMaySee } from '@/lib/auth'
 import { toPaise, formatINR } from '@/lib/money'
 import SuccessTick from '@/components/SuccessTick'
 import CountUpAmount from './CountUpAmount'
@@ -40,6 +40,7 @@ interface Row {
   fulfilled_at: string | null
   line_items: unknown
   user_id: string | null
+  store_id: string | null
   invoice_no: string | null
 }
 
@@ -93,7 +94,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const rows = (await sql`
     select o.id, o.status, o.amount_paise, o.amount_captured_paise,
            o.amount_refunded_paise, o.receipt_no, o.created_at, o.fulfilled_at,
-           o.line_items, o.user_id, i.invoice_no
+           o.line_items, o.user_id, o.store_id, i.invoice_no
       from orders o
       left join invoices i on i.order_id = o.id
      where o.id = ${id}::uuid
@@ -103,12 +104,13 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const order = rows[0]
   if (!order) return <NotFound />
 
-  // Staff need to open any order at the counter; everyone else sees only their
-  // own. Same-shaped 404 either way — "exists but not yours" is not something a
-  // stranger should be able to learn from the response.
+  // Staff open orders at the counter, scoped by staffMaySee (associates: own
+  // store). Everyone else sees only their own. Same-shaped 404 either way —
+  // "exists but not yours" is not something a stranger should learn.
   const isOwner = order.user_id === userId
-  const viewerStaffRole = await staffRole(userId)
-  if (!isOwner && !viewerStaffRole) return <NotFound />
+  const viewerStaff = await staffOf(userId)
+  if (!isOwner && !staffMaySee(viewerStaff, order.store_id)) return <NotFound />
+  const viewerStaffRole = viewerStaff?.role ?? null
 
   const s = STATUS[order.status] ?? {
     cls: 'badge-neutral',

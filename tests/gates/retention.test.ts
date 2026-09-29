@@ -56,7 +56,7 @@ describe('app.sweep — OTP purge (was orphaned before 0011)', () => {
     const id = 'sweep-consumed@example.com'
     one(await db.sql`select app.create_otp_challenge(
       ${id}, ${hash(id, '424242')}, ${null}, ${'verify'}, ${300}, ${5})`)
-    one(await db.sql`select app.verify_otp_challenge(${id}, ${'verify'}, ${hash(id, '424242')})`)
+    one(await db.sql`select app.verify_otp_challenge(${id}, ${'verify'}, ${hash(id, '424242')}, ${null})`)
 
     // Consumed a day and a half ago.
     await db.sql`update otp_challenges

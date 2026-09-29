@@ -41,7 +41,7 @@ export async function POST(request: Request) {
     const { code } = parsed.data
     const purpose = parsed.data.purpose ?? 'verify'
 
-    const result = await verifyOtp({ identifier, code, purpose })
+    const result = await verifyOtp({ identifier, code, purpose, userId: session.userId })
 
     await audit({
       event: 'otp_fallback',

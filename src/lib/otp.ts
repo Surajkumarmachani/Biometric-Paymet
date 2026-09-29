@@ -202,6 +202,8 @@ export interface OtpVerifyResult {
 export async function verifyOtp(args: {
   identifier: string
   code: string
+  /** The signed-in caller. Only their own challenge can match (0016). */
+  userId: string
   purpose?: OtpPurpose
 }): Promise<OtpVerifyResult> {
   const purpose = args.purpose ?? 'verify'
@@ -213,7 +215,7 @@ export async function verifyOtp(args: {
     remaining?: number
     user_id?: string | null
   }>(sql`
-    select app.verify_otp_challenge(${args.identifier}, ${purpose}, ${codeHash})
+    select app.verify_otp_challenge(${args.identifier}, ${purpose}, ${codeHash}, ${args.userId})
   `)
 
   return {

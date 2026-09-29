@@ -3,6 +3,7 @@ import { timingSafeEqual, createHash } from 'node:crypto'
 import { sql, rpc } from './db'
 import { ApiError, fail } from './errors'
 import { enforce, clientIp } from './rate-limit'
+import { MIN_SECRET_LENGTH } from './auth'
 import { generateApiKey, hashApiKey, displayPrefix } from './api-key-format'
 
 /**
@@ -59,6 +60,11 @@ export async function requireApiKey(request: Request): Promise<ApiClient> {
 export async function requireAdmin(request: Request): Promise<void> {
   const expected = process.env.ADMIN_TOKEN
   if (!expected) fail('not_found', 'admin disabled: ADMIN_TOKEN unset')
+  // Any non-empty value used to switch the key-minting API on. A short token
+  // leaves it off, loudly in the log, instead of guardable by a guess.
+  if (expected.length < MIN_SECRET_LENGTH) {
+    fail('not_found', 'admin disabled: ADMIN_TOKEN shorter than 32 chars (openssl rand -hex 32)')
+  }
 
   await enforce('adminPerIp', clientIp(request.headers))
   await enforce('adminGlobal', 'all')

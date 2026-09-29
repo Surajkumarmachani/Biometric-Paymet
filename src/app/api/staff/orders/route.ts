@@ -8,6 +8,7 @@ import { decideRails } from '@/lib/rails'
 import { errorResponse, newRequestId, fail } from '@/lib/errors'
 import { formatINR } from '@/lib/money'
 import { requireApiKey } from '@/lib/api-keys'
+import { payOrigin } from '@/lib/pay-origin'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -51,14 +52,9 @@ export async function POST(request: Request) {
       claimTtlSeconds: parsed.data.claimTtlSeconds ?? 900,
     })
 
-    // The QR must resolve on the CUSTOMER's phone, so derive the origin from the
-    // host the terminal was loaded on (localhost / LAN IP / tunnel) rather than a
-    // fixed env value — a `localhost` QR is unscannable from another device.
-    const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
-    const proto =
-      request.headers.get('x-forwarded-proto') ??
-      (host && /^(localhost|127\.|192\.168\.|10\.|172\.)/.test(host) ? 'http' : 'https')
-    const origin = host ? `${proto}://${host}` : (process.env.NEXT_PUBLIC_APP_ORIGIN ?? '')
+    // The QR must resolve on the CUSTOMER's phone. payOrigin() pins it to
+    // PAY_ORIGIN in production and validates the dev header fallback.
+    const origin = payOrigin(request.headers)
     const qrUrl = `${origin}/pay/${order.claimToken}`
 
     // Rendered on a screen you control. Never print and leave a QR unattended —

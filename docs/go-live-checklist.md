@@ -96,8 +96,9 @@ These are **mechanisms**. The items below make them real.
 - [ ] Deploy to a real host (Vercel) so the **crons actually run** (drain,
       reconcile, sweep, settlement-recon) — they do **not** run locally
 - [ ] A **production Supabase project** (separate from the dev one), migrations
-      **`0001…0011`** applied via `npm run db:reset` (0000 is local-test-only and
-      must NOT be run on Supabase). Applying only through 0007 leaves you without
+      **`0001…0016`** applied via `npm run db:reset`. It skips 0000 (local-test
+      auth shim) and 0003 (dev seed: ₹1 test products, a fake store and staff
+      row) by default; never pass `--with-shim` or `--with-seed` against prod. Applying only through 0007 leaves you without
       chargeback stickiness, credit notes, the late-auth heartbeat, and retention.
 - [ ] Clerk wired as a **Supabase third-party auth provider** on prod, and the
       `reverification_id` session claim added — `/api/pay/authorize` fails closed

@@ -27,9 +27,9 @@ async function create(id: string, code: string, opts?: { ttl?: number; max?: num
       ${'verify'}, ${opts?.ttl ?? 300}, ${opts?.max ?? 5})`,
   )
 }
-async function verify(id: string, code: string) {
+async function verify(id: string, code: string, user: string | null = null) {
   return one<{ ok: boolean; reason?: string; remaining?: number; user_id?: string | null }>(
-    await db.sql`select app.verify_otp_challenge(${id}, ${'verify'}, ${hash(id, code)})`,
+    await db.sql`select app.verify_otp_challenge(${id}, ${'verify'}, ${hash(id, code)}, ${user})`,
   )
 }
 
@@ -37,7 +37,7 @@ describe('otp verification', () => {
   it('verifies a correct code and returns the bound user', async () => {
     const id = 'u1@example.com'
     await create(id, '111111', { user: 'user_u1' })
-    const out = await verify(id, '111111')
+    const out = await verify(id, '111111', 'user_u1')
     expect(out.ok).toBe(true)
     expect(out.user_id).toBe('user_u1')
   })
@@ -86,5 +86,29 @@ describe('otp verification', () => {
     const out = await verify(id, '777777')
     expect(out.ok).toBe(false)
     expect(out.reason).toBe('no_active')
+  })
+})
+
+describe('otp challenges are per user (security review #10)', () => {
+  const ID = 'victim@example.com'
+
+  it("another user's wrong guesses cannot burn the victim's code", async () => {
+    await create(ID, '111111', { user: 'user_victim' })
+    for (let i = 0; i < 6; i++) {
+      expect((await verify(ID, '000000', 'user_attacker')).reason).toBe('no_active')
+    }
+    expect((await verify(ID, '111111', 'user_victim')).ok).toBe(true)
+  })
+
+  it("another user's correct code does not verify the victim's challenge", async () => {
+    await create(ID, '222222', { user: 'user_victim' })
+    expect((await verify(ID, '222222', 'user_attacker')).ok).toBe(false)
+    expect((await verify(ID, '222222', 'user_victim')).ok).toBe(true)
+  })
+
+  it("requesting a code does not cancel someone else's active code", async () => {
+    await create(ID, '333333', { user: 'user_victim' })
+    await create(ID, '444444', { user: 'user_attacker' })
+    expect((await verify(ID, '333333', 'user_victim')).ok).toBe(true)
   })
 })

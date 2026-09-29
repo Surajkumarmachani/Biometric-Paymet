@@ -1,5 +1,6 @@
 import { auth } from '@clerk/nextjs/server'
 import { sql } from '@/lib/db'
+import { staffOf, staffMaySee } from '@/lib/auth'
 import { formatINR, toPaise } from '@/lib/money'
 import { getInvoiceForOrder, issueInvoiceForOrder, type Invoice } from '@/lib/invoice'
 
@@ -14,6 +15,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   const { id } = await params
   const { userId } = await auth()
   if (!userId) return <Shell><p>Please sign in to view this invoice.</p></Shell>
+  // A malformed id reads as not-found, not a 500 from a failed uuid cast.
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return <Shell><p>Invoice not found.</p></Shell>
 
   /**
    * Who may view this invoice (service-role read, so we filter explicitly).
@@ -34,19 +37,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   `) as unknown as Array<{ user_id: string | null; store_id: string | null }>
   const order = orderRows[0]
 
-  let permitted = !!order && order.user_id === userId
-  if (order && !permitted) {
-    const staff = (await sql`
-      select store_id, role from staff
-       where clerk_id = ${userId} and active
-       limit 1
-    `) as unknown as Array<{ store_id: string; role: string }>
-
-    const row = staff[0]
-    const privileged = row?.role === 'manager' || row?.role === 'admin'
-    const sameStore = !!row && !!order.store_id && row.store_id === order.store_id
-    permitted = !!row && (privileged || sameStore)
-  }
+  const permitted =
+    !!order && (order.user_id === userId || staffMaySee(await staffOf(userId), order.store_id))
 
   // Same-shaped message whether it is missing or merely not yours — "exists but
   // not yours" is not something a stranger should learn from the response.

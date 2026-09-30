@@ -1,0 +1,18 @@
+# What `vercel deploy` uploads. Never secrets — Vercel gets settings from its
+# own Environment Variables, not from files.
+.env
+.env.*
+!.env.example
+.clerk
+node_modules
+.next
+.next-*
+tsconfig.tsbuildinfo
+tests
+docs
+coverage
+zap-report*.html
+zap.yaml
+Dockerfile
+.dockerignore
+.gcloudignore

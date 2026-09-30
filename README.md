@@ -131,8 +131,10 @@ subscribe at minimum: `payment.captured`, `payment.failed`, `order.paid`, plus
 `refund.*` and the six `payment.dispute.*` events. The webhook secret is
 **separate** from `RAZORPAY_KEY_SECRET`.
 
-**Crons.** `vercel.json` schedules the drain and reconciler every minute, plus a
-daily sweep (03:17) and settlement recon (04:42). **The drain is not optional** —
+**Crons.** Google Cloud Scheduler (project `regal-lab`, `asia-south1`) calls the
+drain and reconciler every minute, plus a daily sweep (03:17 UTC) and settlement
+recon (04:42 UTC), as `POST` with an `x-internal-secret` header. They are not in
+`vercel.json`: the website on Vercel must not run them a second time. **The drain is not optional** —
 a ledger with no consumer is a queue that fills forever and nothing is ever
 fulfilled. The sweep is not optional either: it is the only thing enforcing
 retention on the audit log and OTP rows.

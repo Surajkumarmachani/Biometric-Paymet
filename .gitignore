@@ -17,3 +17,7 @@ next-env.d.ts
 
 # security scan reports
 zap-report*.html
+# Vercel CLI link + pulled env files (added by `vercel link`)
+.vercel
+.env*
+!.env.example

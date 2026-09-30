@@ -1,0 +1,16 @@
+# What `gcloud builds submit` uploads to Cloud Build. Never secrets.
+.env
+.env.*
+!.env.example
+.clerk
+.git
+.github
+node_modules
+.next
+.next-*
+tsconfig.tsbuildinfo
+tests
+docs
+coverage
+zap-report*.html
+zap.yaml

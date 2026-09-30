@@ -48,6 +48,7 @@ export type AuditEvent =
   | 'be_flag_change'
   | 'counter_regression'
   | 'otp_fallback'
+  | 'staff_access_changed'
 
 export interface AuditInput {
   event: AuditEvent

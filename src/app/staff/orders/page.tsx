@@ -13,9 +13,9 @@ export const dynamic = 'force-dynamic'
 /**
  * Staff order lookup + refunds.
  *
- * Scope follows the authorisation model rather than inventing a stricter one: the
- * refund API lets ANY manager refund ANY order, so hiding orders from a manager
- * here would be theatre. Associates (who cannot refund) see only their store.
+ * Scope: managers and admins can look up any order; associates see only their
+ * store. Refunding is narrower (0017): managers refund their own store's orders,
+ * admins any — the refund button follows staffMayRefund.
  * Either role can look an order up by receipt number — that is what happens when
  * a customer walks in holding one.
  */

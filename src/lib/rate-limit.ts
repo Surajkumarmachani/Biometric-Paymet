@@ -36,6 +36,8 @@ export const LIMITS = {
   statusPerUser: { limit: 120, windowSeconds: 60 },
   /** Refunds move money outward. Tight, and alert on approach. */
   refundPerStaff: { limit: 10, windowSeconds: 3600 },
+  /** Staff access changes by an admin (/staff/team). A person, not a script. */
+  staffAdminPerUser: { limit: 30, windowSeconds: 3600 },
   /**
    * Asking for a refund moves no money, so this is not a fraud limit — it stops
    * one annoyed customer from filling the staff queue. One open request per

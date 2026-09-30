@@ -52,6 +52,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
                       <>
                         <Link href="/staff/terminal" className="nav-link gold">Terminal</Link>
                         <Link href="/staff/orders" className="nav-link gold nav-hide-sm">Refunds</Link>
+                        {role === 'admin' && (
+                          <Link href="/staff/team" className="nav-link gold nav-hide-sm">Team</Link>
+                        )}
                       </>
                     )}
                     <span className="nav-sep" aria-hidden="true" />
